@@ -1,60 +1,60 @@
 name,ticker,sector,revenue_bn,margin,debt_ratio,yoy_growth,market_cap_bn,r_and_d_pct,capex_pct,sector_growth_forecast,forecast_horizon_months
-Taiwan Semiconductor,TSM,Semiconductors,90.1,40.5%,0.28,33.9%,1165.0,7.8%,40.2%,50%,12
-ASML Holding,ASML,Semiconductors,28.3,27.2%,0.24,16.8%,312.0,14.5%,5.9%,,
-Applied Materials,AMAT,Semiconductors,27.2,26.8%,0.42,5.1%,148.0,12.2%,4.5%,,
-Lam Research,LRCX,Semiconductors,18.9,28.1%,0.35,8.4%,95.0,11.0%,3.9%,,
-KLA Corporation,KLAC,Semiconductors,10.8,33.5%,0.52,11.2%,78.0,12.5%,3.2%,,
-NVIDIA,NVDA,Semiconductors,130.5,55.0%,0.38,114.2%,3300.0,14.8%,1.9%,60%,12
-AMD,AMD,Semiconductors,25.8,5.8%,0.16,13.7%,220.0,21.5%,1.1%,,
-Qualcomm,QCOM,Semiconductors,42.2,26.5%,0.82,11.8%,165.0,22.0%,1.9%,,
-Broadcom,AVGO,Semiconductors,51.6,22.8%,1.18,7.8%,1245.0,16.5%,2.2%,40%,12
-ARM Holdings,ARM,Semiconductors,4.0,25.5%,0.06,51.8%,150.0,36.8%,0.4%,,
-Marvell Technology,MRVL,Semiconductors,6.8,4.2%,0.35,8.8%,62.0,23.5%,2.8%,,
+Taiwan Semiconductor,TSM,Semiconductors,122.3,42.0%,0.28,38.5%,1900.0,7.8%,36.0%,50%,12
+ASML Holding,ASML,Semiconductors,35.5,26.0%,0.24,15.6%,270.0,14.5%,5.9%,,
+Applied Materials,AMAT,Semiconductors,27.2,26.8%,0.42,0.0%,120.0,12.2%,4.5%,,
+Lam Research,LRCX,Semiconductors,21.4,28.0%,0.35,22.1%,90.0,11.0%,3.9%,,
+KLA Corporation,KLAC,Semiconductors,12.2,33.5%,0.52,11.2%,75.0,12.5%,3.2%,,
+NVIDIA,NVDA,Semiconductors,130.5,56.0%,0.38,114.2%,2640.0,14.8%,1.9%,60%,12
+AMD,AMD,Semiconductors,34.6,8.2%,0.16,34.3%,175.0,21.5%,1.1%,,
+Qualcomm,QCOM,Semiconductors,44.3,12.0%,0.82,13.7%,137.0,22.0%,1.9%,,
+Broadcom,AVGO,Semiconductors,51.6,22.8%,1.18,7.8%,1759.0,16.5%,2.2%,40%,12
+ARM Holdings,ARM,Semiconductors,4.0,19.7%,0.06,23.9%,130.0,36.8%,0.4%,,
+Marvell Technology,MRVL,Semiconductors,7.8,5.0%,0.35,44.9%,70.0,23.5%,2.8%,,
 Intel,INTC,Semiconductors,52.9,-0.5%,0.72,-0.5%,312.0,26.1%,27.6%,,
-Texas Instruments,TXN,Semiconductors,15.6,29.8%,0.88,-11.2%,148.0,10.8%,13.2%,,
-ON Semiconductor,ON,Semiconductors,7.1,19.8%,0.55,-11.8%,32.0,9.2%,16.5%,,
-NXP Semiconductors,NXPI,Semiconductors,12.8,21.5%,0.95,-5.2%,48.0,15.2%,5.8%,,
-Wolfspeed,WOLF,Semiconductors,1.0,-65.0%,5.80,28.2%,2.1,30.5%,72.0%,,
-SK Hynix,000660,Semiconductors,66.0,49.0%,0.42,101.2%,120.0,9.5%,26.8%,55%,12
-Samsung Electronics,SSNLF,Semiconductors,240.0,9.8%,0.25,4.2%,360.0,8.5%,14.8%,,
-Micron Technology,MU,Semiconductors,30.8,22.5%,0.35,61.6%,110.0,8.8%,28.5%,,
-Toyota Motor,TM,Automotive,274.9,6.2%,1.12,8.3%,210.0,3.8%,5.4%,15%,24
-Volkswagen,VWAGY,Automotive,293.4,2.8%,2.10,-3.1%,62.0,6.2%,7.8%,,
-Stellantis,STLA,Automotive,189.5,3.9%,0.88,-12.4%,38.0,5.1%,6.9%,,
-Tesla,TSLA,Automotive,97.7,5.5%,0.18,18.8%,580.0,4.8%,7.8%,20%,18
-BorgWarner,BWA,Automotive,14.2,5.8%,0.67,2.2%,8.5,4.5%,3.5%,,
-Aptiv,APTV,Automotive,19.7,6.1%,0.74,4.8%,14.2,6.8%,2.9%,,
-Boeing,BA,Aerospace,77.8,-3.2%,29.50,-1.9%,92.0,4.5%,2.3%,10%,18
-Airbus,AIRB,Aerospace,65.4,4.8%,3.20,11.2%,98.0,5.8%,2.8%,,
-Raytheon,RTX,Aerospace,68.9,6.2%,0.85,9.3%,122.0,3.8%,2.1%,,
+Texas Instruments,TXN,Semiconductors,17.7,28.1%,0.88,13.1%,190.0,10.8%,28.2%,,
+ON Semiconductor,ON,Semiconductors,6.4,14.8%,0.55,-14.2%,35.0,9.2%,16.5%,,
+NXP Semiconductors,NXPI,Semiconductors,12.3,21.5%,0.95,-2.7%,52.0,15.2%,5.8%,,
+Wolfspeed,WOLF,Semiconductors,0.76,-85.0%,5.80,-6.0%,1.8,30.5%,72.0%,,
+SK Hynix,000660,Semiconductors,68.7,49.0%,0.42,43.3%,540.0,9.5%,26.8%,55%,12
+Samsung Electronics,SSNLF,Semiconductors,231.0,13.3%,0.25,7.8%,859.0,8.5%,14.2%,,
+Micron Technology,MU,Semiconductors,37.4,41.0%,0.35,48.9%,474.0,8.8%,28.5%,,
+Toyota Motor,TM,Automotive,317.0,9.9%,1.12,1.9%,210.0,3.8%,5.4%,15%,24
+Volkswagen,VWAGY,Automotive,293.4,2.1%,2.10,-3.1%,54.0,6.2%,7.8%,,
+Stellantis,STLA,Automotive,189.5,3.9%,0.88,-12.4%,30.0,5.1%,6.9%,,
+Tesla,TSLA,Automotive,97.7,5.5%,0.18,18.8%,830.0,4.8%,7.8%,20%,18
+BorgWarner,BWA,Automotive,14.3,5.8%,0.67,-0.7%,11.1,4.5%,3.5%,,
+Aptiv,APTV,Automotive,19.6,6.1%,0.74,-2.5%,15.1,6.8%,2.9%,,
+Boeing,BA,Aerospace,89.5,2.1%,29.50,34.5%,110.0,4.5%,2.3%,10%,18
+Airbus,AIRB,Aerospace,65.4,4.8%,3.20,11.2%,110.0,5.8%,2.8%,,
+Raytheon,RTX,Aerospace,80.0,7.2%,0.85,10.5%,150.0,3.8%,2.1%,,
 Hexcel,HXL,Aerospace,1.6,10.4%,0.42,6.5%,3.2,3.2%,4.8%,,
 TransDigm,TDG,Aerospace,6.6,19.8%,8.20,14.8%,52.0,2.1%,2.2%,,
-ExxonMobil,XOM,Energy,398.7,8.9%,0.22,2.1%,480.0,0.5%,8.5%,,
-Schlumberger,SLB,Energy,33.1,11.8%,0.62,14.5%,65.0,3.1%,4.2%,20%,12
-Halliburton,HAL,Energy,23.0,11.4%,0.75,8.2%,32.0,1.8%,3.5%,,
-Baker Hughes,BKR,Energy,25.5,7.6%,0.48,9.1%,30.0,2.3%,3.8%,,
-Walmart,WMT,Retail,648.1,2.4%,0.67,5.1%,520.0,0.6%,3.4%,,
-Amazon,AMZN,Retail,574.8,5.3%,0.82,12.6%,2200.0,14.5%,4.5%,25%,12
-Costco,COST,Retail,237.7,2.9%,0.36,7.2%,320.0,0.4%,3.8%,,
-Johnson & Johnson,JNJ,Healthcare,85.2,18.2%,0.42,6.5%,380.0,14.8%,3.1%,,
-Pfizer,PFE,Healthcare,58.5,11.4%,0.55,-41.2%,142.0,17.2%,2.5%,,
+ExxonMobil,XOM,Energy,323.9,8.9%,0.22,-5.0%,510.0,0.5%,10.2%,,
+Schlumberger,SLB,Energy,36.3,11.8%,0.62,14.5%,74.0,3.1%,4.2%,20%,12
+Halliburton,HAL,Energy,22.2,11.4%,0.75,-3.3%,31.0,1.8%,3.5%,,
+Baker Hughes,BKR,Energy,26.0,7.6%,0.48,2.0%,30.0,2.3%,3.8%,,
+Walmart,WMT,Retail,681.0,2.4%,0.67,5.1%,1020.0,0.6%,3.4%,,
+Amazon,AMZN,Retail,638.0,9.3%,0.82,10.9%,2020.0,14.5%,15.6%,25%,12
+Costco,COST,Retail,275.0,2.9%,0.28,8.2%,443.0,0.4%,3.8%,,
+Johnson & Johnson,JNJ,Healthcare,94.2,28.5%,0.42,6.1%,580.0,14.8%,3.1%,,
+Pfizer,PFE,Healthcare,63.6,9.8%,0.55,8.7%,142.0,17.2%,2.5%,,
 Medtronic,MDT,Healthcare,32.3,12.1%,0.68,2.8%,95.0,8.5%,3.8%,18%,24
-Thermo Fisher,TMO,Healthcare,42.9,13.8%,0.72,5.1%,200.0,5.2%,4.2%,,
-JPMorgan Chase,JPM,Financials,158.1,26.8%,0.0,10.2%,580.0,1.1%,0.8%,,
-Goldman Sachs,GS,Financials,46.2,21.5%,0.0,6.8%,145.0,1.8%,0.5%,,
+Thermo Fisher,TMO,Healthcare,44.6,13.8%,0.72,3.9%,184.0,5.2%,4.2%,,
+JPMorgan Chase,JPM,Financials,168.2,33.9%,0.0,0.8%,700.0,1.1%,0.8%,,
+Goldman Sachs,GS,Financials,58.3,26.5%,0.0,8.9%,264.0,1.8%,0.5%,,
 Nucor,NUE,Materials,22.3,10.4%,0.28,-12.8%,18.5,0.8%,8.2%,,
 Freeport-McMoRan,FCX,Materials,22.8,12.1%,0.35,4.2%,52.0,0.4%,11.5%,30%,18
 BASF,BASFY,Materials,68.9,2.8%,0.82,-6.8%,35.0,3.2%,4.5%,,
 Corning,GLW,Materials,12.6,8.5%,0.58,2.1%,32.0,8.2%,6.5%,,
-Microsoft,MSFT,Software,245.1,35.6%,0.25,15.7%,3100.0,13.5%,8.5%,,
-Meta Platforms,META,Software,164.5,36.0%,0.12,21.9%,1400.0,28.5%,4.2%,30%,12
-Alphabet,GOOGL,Software,350.0,26.5%,0.07,13.4%,2100.0,14.8%,11.5%,,
-Salesforce,CRM,Software,34.9,8.1%,0.18,11.2%,225.0,14.5%,2.1%,35%,12
-ServiceNow,NOW,Software,8.9,5.8%,0.12,22.4%,160.0,18.5%,1.8%,,
-Super Micro Computer,SMCI,Industrials,14.9,8.2%,0.42,110.8%,28.0,2.5%,4.8%,,
-Dell Technologies,DELL,Industrials,88.4,3.1%,3.50,0.9%,42.0,1.5%,1.2%,,
-HPE,HPE,Industrials,31.8,5.8%,0.88,-0.5%,18.5,3.2%,2.8%,,
-Caterpillar,CAT,Industrials,64.8,13.8%,1.85,12.6%,180.0,2.1%,3.2%,,
-Honeywell,HON,Industrials,36.7,15.2%,0.88,4.8%,130.0,4.8%,3.5%,,
+Microsoft,MSFT,Software,279.0,36.0%,0.25,15.7%,3130.0,13.5%,28.6%,,
+Meta Platforms,META,Software,164.5,36.0%,0.12,21.9%,1460.0,28.5%,22.5%,30%,12
+Alphabet,GOOGL,Software,350.0,28.0%,0.07,13.4%,1900.0,14.8%,11.5%,,
+Salesforce,CRM,Software,37.9,15.0%,0.18,8.7%,228.0,14.5%,2.1%,35%,12
+ServiceNow,NOW,Software,11.6,14.2%,0.12,22.5%,175.0,18.5%,1.8%,,
+Super Micro Computer,SMCI,Industrials,22.0,6.5%,0.42,46.6%,13.5,2.5%,4.8%,,
+Dell Technologies,DELL,Industrials,95.6,3.5%,3.50,8.1%,50.0,1.5%,1.2%,,
+HPE,HPE,Industrials,34.3,0.2%,0.88,13.8%,22.0,3.2%,2.8%,,
+Caterpillar,CAT,Industrials,67.6,13.8%,1.85,4.3%,180.0,2.1%,3.2%,,
+Honeywell,HON,Industrials,37.4,15.2%,0.88,2.7%,130.0,4.8%,3.5%,,
 Emerson Electric,EMR,Industrials,15.2,12.8%,0.62,3.8%,52.0,3.2%,3.8%,,
 Parker Hannifin,PH,Industrials,19.8,11.4%,1.05,8.8%,65.0,2.8%,4.2%,,

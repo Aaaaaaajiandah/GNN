@@ -242,17 +242,19 @@ def load_edges_from_csv(path: str, companies: list[Company]) -> list[Edge]:
 
     def lookup(val: str) -> Company | None:
         val = val.strip()
-        # Try integer id first
-        try:
-            return by_id.get(int(val))
-        except ValueError:
-            pass
-        # Try ticker
+        # Try ticker first (before int, so numeric tickers like 000660 work correctly)
         upper = val.upper()
         if upper in by_ticker:
             return by_ticker[upper]
         # Try name (case-insensitive)
-        return by_name.get(val.lower())
+        if val.lower() in by_name:
+            return by_name[val.lower()]
+        # Try integer id last (only if it looks like a plain int, not a ticker)
+        try:
+            return by_id.get(int(val))
+        except ValueError:
+            pass
+        return None
 
     edges: list[Edge] = []
     skipped = 0
@@ -279,7 +281,9 @@ def load_edges_from_csv(path: str, companies: list[Company]) -> list[Edge]:
         seen: set[tuple[int,int]] = set()
 
         for line_no, raw_row in enumerate(reader, start=2):
-            row = {k.strip().lower(): v for k, v in raw_row.items()}
+            if raw_row is None:
+                continue
+            row = {k.strip().lower(): v for k, v in raw_row.items() if k is not None}
 
             # Skip comment rows (first cell starts with #)
             first_val = next(iter(row.values()), "")

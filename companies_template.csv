@@ -1,0 +1,31 @@
+# ── companies.csv column reference ───────────────────────────────────────────
+#
+# REQUIRED columns (must be present):
+#   name      Full company name           e.g.  Taiwan Semiconductor
+#   ticker    Stock ticker symbol         e.g.  TSM
+#   sector    Industry sector             e.g.  Semiconductors
+#             Accepted values (or anything that fuzzy-maps to them):
+#               Semiconductors, Automotive, Aerospace, Energy,
+#               Retail, Healthcare, Financials, Materials, Software, Industrials
+#
+# OPTIONAL columns (leave blank or omit entirely — defaults to 0):
+#   revenue_bn              Annual revenue in $B           e.g. 69.3  or  69.3B  or  69300M
+#   margin                  Net profit margin              e.g. 0.385  or  38.5  or  38.5%
+#   debt_ratio              Total debt / equity            e.g. 0.31   (raw ratio, not %)
+#   yoy_growth              YoY revenue growth             e.g. 0.259  or  25.9  or  25.9%
+#   market_cap_bn           Market cap in $B               e.g. 520.0
+#   r_and_d_pct             R&D spend as % of revenue      e.g. 0.085  or  8.5   or  8.5%
+#   capex_pct               CapEx as % of revenue          e.g. 0.121  or  12.1  or  12.1%
+#   sector_growth_forecast  Analyst sector growth forecast e.g. 0.50   or  50    or  50%
+#   forecast_horizon_months Forecast horizon in months     e.g. 12
+#
+# Notes:
+#   • Percentage columns accept  0.385  OR  38.5  OR  38.5%  — all mean 38.5%
+#   • Revenue/market_cap accept  69.3  OR  69.3B  OR  69300M  OR  0.0693T
+#   • If sector_growth_forecast is set, the shock propagation uses this as the
+#     starting signal for that company's sector.
+#
+name,ticker,sector,revenue_bn,margin,debt_ratio,yoy_growth,market_cap_bn,r_and_d_pct,capex_pct,sector_growth_forecast,forecast_horizon_months
+Your Company,TICK,Semiconductors,10.5,15%,0.4,8%,45.0,12%,5%,50%,12
+Supplier A,SUPA,Materials,3.2,8%,0.6,3%,8.0,2%,9%,,
+Customer B,CUSB,Automotive,22.0,6%,1.1,5%,18.0,4%,6%,,

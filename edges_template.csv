@@ -1,0 +1,26 @@
+# ── edges.csv column reference ────────────────────────────────────────────────
+#
+# Each row = one supply chain relationship:  supplier → customer
+# (supplier sells TO customer)
+#
+# COLUMN LAYOUTS — pick ONE, the loader auto-detects:
+#
+#   Layout A (recommended): supplier_ticker + customer_ticker
+#   Layout B:               supplier_name   + customer_name
+#   Layout C:               supplier_id     + customer_id     (0-based row index)
+#   Layout D:               supplier        + customer         (tries ticker then name)
+#
+# OPTIONAL column:
+#   relationship_strength   How critical is this link?   0.0 – 1.0
+#                           Also accepted as 0–100 (auto-scaled)
+#                           Also accepted column names: strength, weight
+#                           Defaults to 1.0 if omitted
+#
+# Notes:
+#   • Unknown tickers/names produce a warning and are skipped (not a hard error)
+#   • Duplicate edges are silently deduplicated
+#   • Self-loops (supplier == customer) are ignored
+#
+supplier_ticker,customer_ticker,relationship_strength
+SUPA,TICK,0.80
+TICK,CUSB,0.65

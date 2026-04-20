@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supply Chain Intelligence</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  :root {
+    --bg:      #09090f;
+    --surface: #111118;
+    --border:  #1e1e2e;
+    --accent:  #5b8dee;
+    --green:   #3ddc84;
+    --red:     #ff6b6b;
+    --yellow:  #ffd166;
+    --text:    #e4e4f0;
+    --muted:   #6b6b80;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+    font-size: 14px;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ───────────────────────────────────────────────────────── */
+  #sidebar {
+    width: 320px;
+    min-width: 320px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #sidebar-header {
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  #sidebar-header h1 {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  #sidebar-header p {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  #search-box {
+    margin: 12px 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-size: 13px;
+    width: calc(100% - 32px);
+    outline: none;
+    transition: border-color .2s;
+  }
+  #search-box:focus { border-color: var(--accent); }
+
+  #company-list {
+    overflow-y: auto;
+    flex: 1;
+    padding: 4px 0;
+  }
+
+  .company-item {
+    padding: 9px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid transparent;
+    transition: background .15s;
+  }
+  .company-item:hover { background: rgba(91,141,238,.08); }
+  .company-item.active { background: rgba(91,141,238,.15); border-left: 3px solid var(--accent); }
+
+  .ticker-badge {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--border);
+    padding: 2px 6px;
+    border-radius: 4px;
+    min-width: 42px;
+    text-align: center;
+    color: var(--accent);
+  }
+
+  .company-info { flex: 1; }
+  .company-name { font-size: 13px; font-weight: 600; }
+  .company-sector { font-size: 11px; color: var(--muted); }
+
+  .impact-pill {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: 700;
+  }
+  .impact-pos { background: rgba(61,220,132,.12); color: var(--green); }
+  .impact-neg { background: rgba(255,107,107,.12); color: var(--red); }
+  .impact-neu { background: rgba(107,107,128,.12); color: var(--muted); }
+
+  /* ── Main area ─────────────────────────────────────────────────────── */
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Top bar ───────────────────────────────────────────────────────── */
+  #topbar {
+    height: 48px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 12px;
+  }
+
+  .tab-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all .15s;
+  }
+  .tab-btn:hover { color: var(--text); background: var(--border); }
+  .tab-btn.active { color: var(--accent); background: rgba(91,141,238,.12); }
+
+  /* ── Views ─────────────────────────────────────────────────────────── */
+  .view { display: none; flex: 1; overflow: hidden; }
+  .view.active { display: flex; }
+
+  /* ── Graph view ────────────────────────────────────────────────────── */
+  #view-graph { position: relative; }
+
+  #graph-svg {
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+  }
+
+  .node circle {
+    stroke-width: 2;
+    cursor: pointer;
+    transition: r .2s;
+  }
+  .node text {
+    font-size: 10px;
+    fill: var(--text);
+    pointer-events: none;
+    font-family: var(--font-mono);
+  }
+  .link {
+    stroke: rgba(91,141,238,.25);
+    stroke-width: 1.2;
+    marker-end: url(#arrow);
+  }
+  .link.highlighted { stroke: var(--accent); stroke-width: 2; }
+
+  #graph-controls {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    display: flex;
+    gap: 6px;
+  }
+  .ctrl-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all .15s;
+  }
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Detail panel ──────────────────────────────────────────────────── */
+  #detail-panel {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 55%;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    overflow-y: auto;
+    transform: translateY(100%);
+    transition: transform .3s cubic-bezier(.4,0,.2,1);
+    z-index: 10;
+  }
+  #detail-panel.open { transform: translateY(0); }
+
+  #detail-inner { padding: 20px 24px; }
+
+  .detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 16px;
+  }
+
+  .detail-title { font-size: 20px; font-weight: 700; }
+  .detail-subtitle { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+  .close-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 20px;
+    padding: 0 4px;
+    line-height: 1;
+  }
+  .close-btn:hover { color: var(--text); }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .metric-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .metric-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .metric-value { font-size: 18px; font-weight: 700; font-family: var(--font-mono); margin-top: 2px; }
+
+  .supply-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .supply-col h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .supply-col h3 span {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .upstream-label { background: rgba(255,209,102,.1); color: var(--yellow); }
+  .downstream-label { background: rgba(61,220,132,.1); color: var(--green); }
+
+  .supply-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .supply-item:hover { border-color: var(--accent); }
+  .supply-item-left .name { font-size: 13px; font-weight: 600; }
+  .supply-item-left .sub  { font-size: 11px; color: var(--muted); }
+
+  .strength-bar-wrap { width: 60px; }
+  .strength-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .strength-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+
+  /* ── Shock view ────────────────────────────────────────────────────── */
+  #view-shock {
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #shock-layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  #shock-controls {
+    border-right: 1px solid var(--border);
+    padding: 20px;
+    overflow-y: auto;
+  }
+
+  #shock-controls h2 { font-size: 14px; font-weight: 700; margin-bottom: 16px; }
+
+  .form-group { margin-bottom: 14px; }
+  .form-label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: 5px;
+  }
+  .form-select, .form-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .form-select:focus, .form-input:focus { border-color: var(--accent); }
+
+  .range-wrap { display: flex; align-items: center; gap: 10px; }
+  .range-wrap input[type=range] { flex: 1; accent-color: var(--accent); }
+  .range-val {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 44px;
+    text-align: right;
+  }
+
+  .run-btn {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 11px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 6px;
+    transition: opacity .15s;
+  }
+  .run-btn:hover { opacity: .88; }
+
+  #shock-results {
+    padding: 20px;
+    overflow-y: auto;
+  }
+
+  #shock-results h2 { font-size: 14px; font-weight: 700; margin-bottom: 14px; }
+
+  .result-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .result-row:hover { border-color: var(--accent); }
+
+  .result-bar-wrap { flex: 1; }
+  .result-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .result-bar-fill { height: 100%; border-radius: 3px; }
+
+  .delta-val {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    min-width: 60px;
+    text-align: right;
+  }
+
+  /* ── Sectors view ──────────────────────────────────────────────────── */
+  #view-sectors {
+    padding: 20px;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    align-content: start;
+  }
+
+  .sector-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    transition: border-color .15s;
+  }
+  .sector-card:hover { border-color: var(--accent); }
+  .sector-name { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+  .sector-meta { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+  .sector-companies { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sector-company-chip {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    transition: all .15s;
+  }
+  .sector-company-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Loading ───────────────────────────────────────────────────────── */
+  #loading {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    z-index: 999;
+  }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading p { color: var(--muted); font-size: 13px; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <p>Loading supply chain graph…</p>
+</div>
+
+<!-- ── Sidebar ─────────────────────────────────────────────── -->
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h1>Supply Chain Intelligence</h1>
+    <p>GNN · XPU · BF16</p>
+  </div>
+  <input id="search-box" type="text" placeholder="Search companies, sectors…">
+  <div id="company-list"></div>
+</div>
+
+<!-- ── Main ────────────────────────────────────────────────── -->
+<div id="main">
+  <div id="topbar">
+    <button class="tab-btn active" onclick="switchTab('graph')">Graph</button>
+    <button class="tab-btn" onclick="switchTab('shock')">Shock Propagation</button>
+    <button class="tab-btn" onclick="switchTab('sectors')">Sectors</button>
+  </div>
+
+  <!-- Graph view -->
+  <div class="view active" id="view-graph">
+    <svg id="graph-svg">
+      <defs>
+        <marker id="arrow" markerWidth="6" markerHeight="6"
+                refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="rgba(91,141,238,.5)"/>
+        </marker>
+      </defs>
+    </svg>
+    <div id="graph-controls">
+      <button class="ctrl-btn" onclick="resetZoom()">Reset</button>
+      <button class="ctrl-btn" onclick="toggleLabels()">Labels</button>
+    </div>
+    <div id="detail-panel">
+      <div id="detail-inner"></div>
+    </div>
+  </div>
+
+  <!-- Shock view -->
+  <div class="view" id="view-shock">
+    <div id="shock-layout">
+      <div id="shock-controls">
+        <h2>Run Sector Shock</h2>
+        <div class="form-group">
+          <label class="form-label">Sector</label>
+          <select class="form-select" id="shock-sector">
+            <option value="">— all sectors —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Growth signal (%)</label>
+          <div class="range-wrap">
+            <input type="range" id="shock-range" min="-50" max="100" value="50"
+                   oninput="document.getElementById('shock-range-val').textContent = this.value + '%'">
+            <span class="range-val" id="shock-range-val">50%</span>
+          </div>
+        </div>
+        <button class="run-btn" onclick="runShock()">▶ Run Propagation</button>
+        <div style="margin-top:20px; font-size:11px; color:var(--muted); line-height:1.7">
+          <strong style="color:var(--text)">How it works</strong><br>
+          The GNN propagates the sector shock upstream (suppliers feel demand pressure) and
+          downstream (customers see cost/supply changes). Impact scores are normalized
+          revenue-impact predictions from the trained model.
+        </div>
+      </div>
+      <div id="shock-results">
+        <h2>Impact Results</h2>
+        <p style="color:var(--muted); font-size:12px">Run a shock to see propagation results.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sectors view -->
+  <div class="view" id="view-sectors" id="view-sectors"></div>
+</div>
+
+<script>
+// ─── State ──────────────────────────────────────────────────────────────────
+let graphData = null;
+let simulation = null;
+let svg, g;
+let showLabels = true;
+let activeCompanyId = null;
+
+// ─── Utilities ──────────────────────────────────────────────────────────────
+const fmt = (n) => n > 0 ? `+${(n*100).toFixed(1)}%` : `${(n*100).toFixed(1)}%`;
+const fmtImpact = (n) => (n*100).toFixed(2) + '%';
+const color = (n) => n > 0.02 ? 'var(--green)' : n < -0.02 ? 'var(--red)' : 'var(--muted)';
+
+function impactClass(n) {
+  return n > 0.01 ? 'impact-pos' : n < -0.01 ? 'impact-neg' : 'impact-neu';
+}
+
+// ─── Tabs ────────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// ─── Load data ───────────────────────────────────────────────────────────────
+async function init() {
+  const res = await fetch('/api/graph');
+  graphData = await res.json();
+
+  document.getElementById('loading').style.display = 'none';
+
+  buildSidebar(graphData.nodes);
+  buildGraph(graphData);
+  buildSectors();
+  populateSectorSelect();
+}
+
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
+function buildSidebar(nodes) {
+  const list = document.getElementById('company-list');
+  list.innerHTML = '';
+  nodes.forEach(n => {
+    const div = document.createElement('div');
+    div.className = 'company-item';
+    div.dataset.id = n.id;
+    div.innerHTML = `
+      <span class="ticker-badge">${n.ticker}</span>
+      <div class="company-info">
+        <div class="company-name">${n.name}</div>
+        <div class="company-sector">${n.sector}</div>
+      </div>
+      <span class="impact-pill ${impactClass(n.impact)}">${fmtImpact(n.impact)}</span>
+    `;
+    div.onclick = () => selectCompany(n.id);
+    list.appendChild(div);
+  });
+}
+
+document.getElementById('search-box').addEventListener('input', function() {
+  const q = this.value.toLowerCase();
+  document.querySelectorAll('.company-item').forEach(el => {
+    const text = el.textContent.toLowerCase();
+    el.style.display = text.includes(q) ? '' : 'none';
+  });
+});
+
+// ─── Graph ────────────────────────────────────────────────────────────────────
+function buildGraph(data) {
+  const container = document.getElementById('view-graph');
+  const W = container.clientWidth, H = container.clientHeight;
+
+  svg = d3.select('#graph-svg');
+  const zoom = d3.zoom().scaleExtent([0.1, 4]).on('zoom', e => g.attr('transform', e.transform));
+  svg.call(zoom);
+
+  g = svg.append('g');
+
+  const sectorColors = d3.scaleOrdinal(d3.schemeTableau10);
+  const sectorList = [...new Set(data.nodes.map(n => n.sector))];
+  const colorOf = s => sectorColors(sectorList.indexOf(s));
+
+  const impactScale = d3.scaleLinear()
+    .domain([d3.min(data.nodes, n => n.impact), d3.max(data.nodes, n => n.impact)])
+    .range([8, 22]);
+
+  // Links
+  const links = g.selectAll('.link')
+    .data(data.edges)
+    .enter().append('line')
+    .attr('class', 'link')
+    .style('opacity', d => 0.15 + d.strength * 0.6);
+
+  // Nodes
+  const nodes = g.selectAll('.node')
+    .data(data.nodes)
+    .enter().append('g')
+    .attr('class', 'node')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',  (e, d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; })
+    )
+    .on('click', (e, d) => { e.stopPropagation(); selectCompany(d.id); });
+
+  nodes.append('circle')
+    .attr('r', d => impactScale(d.impact))
+    .attr('fill', d => colorOf(d.sector) + '33')
+    .attr('stroke', d => colorOf(d.sector));
+
+  const labels = nodes.append('text')
+    .text(d => d.ticker)
+    .attr('dy', '0.35em')
+    .attr('text-anchor', 'middle');
+
+  window._graphLabels = labels;
+
+  // Simulation
+  simulation = d3.forceSimulation(data.nodes)
+    .force('link', d3.forceLink(data.edges).id(d => d.id).distance(80).strength(0.3))
+    .force('charge', d3.forceManyBody().strength(-220))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide(d => impactScale(d.impact) + 6))
+    .on('tick', () => {
+      links
+        .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      nodes.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+
+  // Click background to close
+  svg.on('click', () => closeDetail());
+}
+
+function resetZoom() {
+  svg.transition().duration(600).call(
+    d3.zoom().transform, d3.zoomIdentity
+  );
+}
+
+function toggleLabels() {
+  showLabels = !showLabels;
+  if (window._graphLabels)
+    window._graphLabels.style('display', showLabels ? null : 'none');
+}
+
+// ─── Company detail ───────────────────────────────────────────────────────────
+async function selectCompany(id) {
+  activeCompanyId = id;
+
+  // Highlight sidebar
+  document.querySelectorAll('.company-item').forEach(el => {
+    el.classList.toggle('active', +el.dataset.id === id);
+  });
+
+  const res = await fetch(`/api/company/${id}`);
+  const c = await res.json();
+
+  const panel = document.getElementById('detail-panel');
+  const inner = document.getElementById('detail-inner');
+
+  inner.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">${c.name} <span style="font-family:var(--font-mono);font-size:14px;color:var(--muted)">(${c.ticker})</span></div>
+        <div class="detail-subtitle">${c.sector} · ${c.forecast ? `Sector growth forecast: <strong style="color:var(--green)">${(c.forecast*100).toFixed(0)}%</strong> over ${c.forecast_months}mo` : 'No growth forecast'}</div>
+      </div>
+      <button class="close-btn" onclick="closeDetail()">×</button>
+    </div>
+    <div class="metrics-grid">
+      ${metric('Revenue', '$' + c.revenue_bn + 'B')}
+      ${metric('Margin', (c.margin*100).toFixed(1) + '%', c.margin > 0 ? 'var(--green)' : 'var(--red)')}
+      ${metric('YoY Growth', fmt(c.yoy_growth), c.yoy_growth > 0 ? 'var(--green)' : 'var(--red)')}
+      ${metric('Market Cap', '$' + c.market_cap_bn + 'B')}
+      ${metric('Debt Ratio', c.debt_ratio.toFixed(2))}
+      ${metric('R&D %', (c.r_and_d_pct*100).toFixed(1) + '%')}
+      ${metric('CapEx %', (c.capex_pct*100).toFixed(1) + '%')}
+      ${metric('GNN Impact', fmtImpact(c.impact), color(c.impact))}
+    </div>
+    <div class="supply-grid">
+      <div class="supply-col">
+        <h3>↑ Suppliers <span class="upstream-label">UPSTREAM</span></h3>
+        ${c.suppliers.length === 0 ? '<p style="color:var(--muted);font-size:12px">No upstream suppliers</p>' :
+          c.suppliers.map(s => supplyItem(s, true)).join('')}
+      </div>
+      <div class="supply-col">
+        <h3>↓ Customers <span class="downstream-label">DOWNSTREAM</span></h3>
+        ${c.customers.length === 0 ? '<p style="color:var(--muted);font-size:12px">No downstream customers</p>' :
+          c.customers.map(s => supplyItem(s, false)).join('')}
+      </div>
+    </div>
+  `;
+
+  panel.classList.add('open');
+}
+
+function metric(label, value, col) {
+  return `<div class="metric-card">
+    <div class="metric-label">${label}</div>
+    <div class="metric-value" style="${col ? 'color:'+col : ''}">${value}</div>
+  </div>`;
+}
+
+function supplyItem(s, isSupplier) {
+  const pct = Math.round((s.strength || 0) * 100);
+  return `<div class="supply-item" onclick="selectCompany(${s.id})">
+    <div class="supply-item-left">
+      <div class="name">${s.name} <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${s.ticker}</span></div>
+      <div class="sub">${s.sector} · impact ${fmtImpact(s.impact)}</div>
+    </div>
+    <div class="strength-bar-wrap">
+      <div style="font-size:10px;color:var(--muted);text-align:right;margin-bottom:3px">${pct}%</div>
+      <div class="strength-bar"><div class="strength-fill" style="width:${pct}%"></div></div>
+    </div>
+  </div>`;
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.remove('open');
+  document.querySelectorAll('.company-item').forEach(el => el.classList.remove('active'));
+  activeCompanyId = null;
+}
+
+// ─── Shock propagation ────────────────────────────────────────────────────────
+function populateSectorSelect() {
+  if (!graphData) return;
+  const sectors = [...new Set(graphData.nodes.map(n => n.sector))].sort();
+  const sel = document.getElementById('shock-sector');
+  sectors.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    sel.appendChild(opt);
+  });
+}
+
+async function runShock() {
+  const sector = document.getElementById('shock-sector').value;
+  const growth = parseFloat(document.getElementById('shock-range').value) / 100;
+
+  const body = { sector: sector || undefined, sector_growth: growth };
+  const res = await fetch('/api/shock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+
+  const out = document.getElementById('shock-results');
+  const maxDelta = Math.max(...data.results.map(r => Math.abs(r.delta)));
+
+  out.innerHTML = `<h2>Impact Results <span style="font-size:11px;color:var(--muted);font-weight:400">— sorted by |Δ impact|</span></h2>`;
+
+  data.results.forEach(r => {
+    const pct = maxDelta > 0 ? Math.abs(r.delta) / maxDelta * 100 : 0;
+    const barColor = r.delta > 0 ? 'var(--green)' : r.delta < 0 ? 'var(--red)' : 'var(--muted)';
+    const div = document.createElement('div');
+    div.className = 'result-row';
+    div.innerHTML = `
+      <span class="ticker-badge">${r.ticker}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+        <div style="font-size:10px;color:var(--muted)">${r.sector}</div>
+        <div class="result-bar-wrap" style="margin-top:4px">
+          <div class="result-bar"><div class="result-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+        </div>
+      </div>
+      <div class="delta-val" style="color:${barColor}">${fmt(r.delta)}</div>
+    `;
+    div.onclick = () => { switchTab('graph'); setTimeout(() => selectCompany(r.id), 100); };
+    out.appendChild(div);
+  });
+}
+
+// ─── Sectors view ─────────────────────────────────────────────────────────────
+function buildSectors() {
+  if (!graphData) return;
+  const view = document.getElementById('view-sectors');
+  const byS = {};
+  graphData.nodes.forEach(n => {
+    if (!byS[n.sector]) byS[n.sector] = [];
+    byS[n.sector].push(n);
+  });
+
+  Object.entries(byS).sort(([a],[b]) => a.localeCompare(b)).forEach(([sector, nodes]) => {
+    const avgImpact = nodes.reduce((s,n) => s+n.impact, 0) / nodes.length;
+    const card = document.createElement('div');
+    card.className = 'sector-card';
+    card.innerHTML = `
+      <div class="sector-name">${sector}</div>
+      <div class="sector-meta">${nodes.length} companies · avg impact <span style="color:${color(avgImpact)};font-family:var(--font-mono)">${fmtImpact(avgImpact)}</span></div>
+      <div class="sector-companies">
+        ${nodes.map(n => `<span class="sector-company-chip" onclick="switchTab('graph');setTimeout(()=>selectCompany(${n.id}),100)">${n.ticker}</span>`).join('')}
+      </div>
+    `;
+    view.appendChild(card);
+  });
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

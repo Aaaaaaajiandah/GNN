@@ -234,15 +234,37 @@ def api_shock():
     baseline = run_inference()
     new_vals  = run_inference(shocks)
 
+    # Identify which companies are directly shocked, upstream, or downstream
+    shocked_ids = set(shocks.keys())
+
+    # BFS to find 1-hop upstream suppliers and downstream customers of shocked companies
+    upstream_of_shocked = set()
+    downstream_of_shocked = set()
+    for e in edges:
+        if e.customer_id in shocked_ids:
+            upstream_of_shocked.add(e.supplier_id)
+        if e.supplier_id in shocked_ids:
+            downstream_of_shocked.add(e.customer_id)
+
     results = []
     for c in companies:
+        if c.id in shocked_ids:
+            relation = "direct"
+        elif c.id in upstream_of_shocked:
+            relation = "upstream"
+        elif c.id in downstream_of_shocked:
+            relation = "downstream"
+        else:
+            relation = "indirect"
+
         results.append({
-            "id":     c.id,
-            "name":   c.name,
-            "ticker": c.ticker,
-            "sector": c.sector,
-            "impact": round(new_vals[c.id], 5),
-            "delta":  round(new_vals[c.id] - baseline[c.id], 5),
+            "id":       c.id,
+            "name":     c.name,
+            "ticker":   c.ticker,
+            "sector":   c.sector,
+            "impact":   round(new_vals[c.id], 5),
+            "delta":    round(new_vals[c.id] - baseline[c.id], 5),
+            "relation": relation,
         })
 
     results.sort(key=lambda x: abs(x["delta"]), reverse=True)

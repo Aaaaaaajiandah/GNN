@@ -70,17 +70,23 @@ class SupplyChainGNN(nn.Module):
 
     def __init__(self, node_feat_dim: int, hidden: int = 128, layers: int = 3):
         super().__init__()
-        self.encoder = nn.Linear(node_feat_dim, hidden)
+        # Encode node features + shock together so shock is part of propagation
+        self.encoder = nn.Linear(node_feat_dim + 1, hidden)  # +1 for shock
 
         self.up_convs   = nn.ModuleList([GraphConvLayer(hidden, hidden) for _ in range(layers)])
         self.down_convs = nn.ModuleList([GraphConvLayer(hidden, hidden) for _ in range(layers)])
 
-        # Shock projection: sector growth signal → node embedding delta
-        self.shock_proj = nn.Linear(1, hidden)
+        # Shock diffusion: propagate shock signal through the graph separately
+        self.shock_encoder = nn.Linear(1, hidden)
+        self.shock_up_conv   = GraphConvLayer(hidden, hidden)
+        self.shock_down_conv = GraphConvLayer(hidden, hidden)
 
-        # Output head: predict revenue impact %
+        # Output head
         self.head = nn.Sequential(
-            nn.Linear(hidden * 3, hidden),
+            nn.Linear(hidden * 4, hidden * 2),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden * 2, hidden),
             nn.GELU(),
             nn.Linear(hidden, 1),
         )
@@ -93,23 +99,28 @@ class SupplyChainGNN(nn.Module):
         shock: torch.Tensor,          # [N, 1]  sector growth signal per node
     ) -> torch.Tensor:                # [N, 1]  predicted revenue impact
 
-        h = F.gelu(self.encoder(node_feats))  # [N, hidden]
+        # Encode node features WITH shock concatenated — shock is part of node state
+        h = F.gelu(self.encoder(torch.cat([node_feats, shock], dim=-1)))  # [N, hidden]
 
-        # Propagate upstream (towards suppliers)
+        # Propagate node embeddings upstream (toward suppliers)
         hu = h
         for conv in self.up_convs:
             hu = conv(hu, upstream_adj)
 
-        # Propagate downstream (towards customers)
+        # Propagate node embeddings downstream (toward customers)
         hd = h
         for conv in self.down_convs:
             hd = conv(hd, downstream_adj)
 
-        # Inject shock signal
-        hs = F.gelu(self.shock_proj(shock))   # [N, hidden]
+        # Separately propagate the raw shock signal through the graph
+        # This explicitly diffuses the shock to neighbours
+        hs = F.gelu(self.shock_encoder(shock))           # [N, hidden]
+        hs_up   = self.shock_up_conv(hs, upstream_adj)   # shock felt by suppliers
+        hs_down = self.shock_down_conv(hs, downstream_adj) # shock felt by customers
+        hs_combined = hs_up + hs_down                    # [N, hidden]
 
-        combined = torch.cat([hu, hd, hs], dim=-1)  # [N, hidden*3]
-        return self.head(combined)                   # [N, 1]
+        combined = torch.cat([hu, hd, h, hs_combined], dim=-1)  # [N, hidden*4]
+        return self.head(combined)                               # [N, 1]
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────

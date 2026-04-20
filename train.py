@@ -38,18 +38,55 @@ from data.dataset import (
 )
 
 
-def synthetic_labels(companies, edges, shock):
-    cust_map  = {c.id: c.customer_ids for c in companies}
-    supp_map  = {c.id: c.supplier_ids for c in companies}
+def synthetic_labels(companies, edges, shock_override=None):
+    """
+    Generate training labels that correctly propagate shocks upstream and downstream.
+
+    For each company i the revenue impact is:
+        impact_i = 0.55 * own_shock_i
+                 + 0.25 * weighted_avg(downstream customer shocks)   <- demand pull
+                 + 0.20 * weighted_avg(upstream supplier shocks)     <- cost push
+
+    Uses edge relationship_strength as weights so strong links carry more signal.
+    shock_override: dict {company_id: shock_value} — overrides static forecasts.
+    """
+    # Build edge weight lookups
+    cust_weights  = {c.id: {} for c in companies}  # cust_weights[i][j]  = strength of i->j (customer)
+    supp_weights  = {c.id: {} for c in companies}  # supp_weights[i][j]  = strength of j->i (supplier)
+    for e in edges:
+        cust_weights[e.supplier_id][e.customer_id] = e.relationship_strength
+        supp_weights[e.customer_id][e.supplier_id] = e.relationship_strength
+
+    # Build shock vector — use override if provided, else static forecast
     shock_vec = [c.sector_growth_forecast or 0.0 for c in companies]
+    if shock_override:
+        for cid, val in shock_override.items():
+            shock_vec[int(cid)] = float(val)
+
     labels = []
     for i in range(len(companies)):
-        own  = shock_vec[i]
-        ds = sum(shock_vec[j] for j in cust_map[i]) / max(len(cust_map[i]), 1)
-        us = sum(shock_vec[j] for j in supp_map[i]) / max(len(supp_map[i]), 1)
-        impact = 0.60 * own + 0.25 * ds + 0.15 * us
-        impact += torch.randn(1).item() * 0.02
+        own = shock_vec[i]
+
+        # Downstream: customers of company i feel demand from i's shock
+        custs = cust_weights[i]
+        if custs:
+            total_w = sum(custs.values())
+            ds = sum(shock_vec[j] * w for j, w in custs.items()) / total_w
+        else:
+            ds = 0.0
+
+        # Upstream: suppliers of company i feel cost/demand pressure from i's shock
+        supps = supp_weights[i]
+        if supps:
+            total_w = sum(supps.values())
+            us = sum(shock_vec[j] * w for j, w in supps.items()) / total_w
+        else:
+            us = 0.0
+
+        impact = 0.55 * own + 0.25 * ds + 0.20 * us
+        impact += torch.randn(1).item() * 0.015   # small noise
         labels.append([impact])
+
     return torch.tensor(labels, dtype=torch.float32)
 
 

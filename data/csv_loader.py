@@ -134,6 +134,9 @@ def load_companies_from_csv(path: str) -> list[Company]:
 
         for raw_row in reader:
             row = {k.strip().lower(): v for k, v in raw_row.items()}
+            # Skip comment rows (lines starting with #)
+            if next(iter(row.values()), "").strip().startswith("#"):
+                continue
             rows.append(row)
 
     companies: list[Company] = []

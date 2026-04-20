@@ -1,7 +1,7 @@
 # Supply Chain Intelligence GNN
 
 Graph Neural Network for supply chain impact propagation.
-Runs on **Intel Arc XPU** (B580) with **BF16** precision via PyTorch.
+Runs on **Intel Arc XPU** (B580) with **BF16** precision via PyTorch. Data for intel (INTC) is also currently wrong, will be updated later.
 
 ---
 

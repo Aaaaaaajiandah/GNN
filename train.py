@@ -59,7 +59,7 @@ def synthetic_labels(companies, edges, shock_override=None):
 
     # Build shock vector — use override if provided, else static forecast
     shock_vec = [c.sector_growth_forecast or 0.0 for c in companies]
-    if shock_override:
+    if shock_override is not None and not isinstance(shock_override, torch.Tensor):
         for cid, val in shock_override.items():
             shock_vec[int(cid)] = float(val)
 
@@ -83,8 +83,11 @@ def synthetic_labels(companies, edges, shock_override=None):
         else:
             us = 0.0
 
+        # Impact is a weighted blend of own shock + neighbour shocks
+        # Values stay in [0, 1] range representing actual growth fractions
+        # (e.g. 0.50 = the sector is projected to grow 50%)
         impact = 0.55 * own + 0.25 * ds + 0.20 * us
-        impact += torch.randn(1).item() * 0.015   # small noise
+        impact += torch.randn(1).item() * 0.01
         labels.append([impact])
 
     return torch.tensor(labels, dtype=torch.float32)

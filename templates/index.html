@@ -559,10 +559,10 @@ let activeCompanyId = null;
 // ─── Utilities ──────────────────────────────────────────────────────────────
 const fmt = (n) => n > 0 ? `+${(n*100).toFixed(1)}%` : `${(n*100).toFixed(1)}%`;
 const fmtImpact = (n) => (n*100).toFixed(2) + '%';
-const color = (n) => n > 0.02 ? 'var(--green)' : n < -0.02 ? 'var(--red)' : 'var(--muted)';
+const color = (n) => n > 0.005 ? 'var(--green)' : n < -0.005 ? 'var(--red)' : 'var(--muted)';
 
 function impactClass(n) {
-  return n > 0.01 ? 'impact-pos' : n < -0.01 ? 'impact-neg' : 'impact-neu';
+  return n > 0.003 ? 'impact-pos' : n < -0.003 ? 'impact-neg' : 'impact-neu';
 }
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
@@ -713,7 +713,7 @@ async function selectCompany(id) {
     <div class="detail-header">
       <div>
         <div class="detail-title">${c.name} <span style="font-family:var(--font-mono);font-size:14px;color:var(--muted)">(${c.ticker})</span></div>
-        <div class="detail-subtitle">${c.sector} · ${c.forecast ? `Sector growth forecast: <strong style="color:var(--green)">${(c.forecast*100).toFixed(0)}%</strong> over ${c.forecast_months}mo` : 'No growth forecast'}</div>
+        <div class="detail-subtitle">${c.sector} · ${(c.forecast !== null && c.forecast !== undefined) ? `Sector growth forecast: <strong style="color:var(--green)">${(c.forecast*100).toFixed(0)}%</strong> over ${c.forecast_months}mo` : 'No growth forecast'}</div>
       </div>
       <button class="close-btn" onclick="closeDetail()">×</button>
     </div>

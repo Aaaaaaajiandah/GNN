@@ -81,11 +81,10 @@ class SupplyChainGNN(nn.Module):
         self.shock_up_conv   = GraphConvLayer(hidden, hidden)
         self.shock_down_conv = GraphConvLayer(hidden, hidden)
 
-        # Output head
+        # Output head — no sigmoid, let it predict unbounded growth %
         self.head = nn.Sequential(
             nn.Linear(hidden * 4, hidden * 2),
             nn.GELU(),
-            nn.Dropout(0.1),
             nn.Linear(hidden * 2, hidden),
             nn.GELU(),
             nn.Linear(hidden, 1),

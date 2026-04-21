@@ -175,11 +175,17 @@ def load_companies_from_csv(path: str) -> list[Company]:
             return _float(raw) * mult
 
         def pct(key, default=0.0):
-            raw = _str(row.get(key, str(default))).replace("%","").replace(",","").strip()
+            raw_orig = _str(row.get(key, str(default))).strip()
+            has_pct_sign = raw_orig.endswith("%")
+            raw = raw_orig.replace("%","").replace(",","").strip()
             val = _float(raw, default)
-            # If someone typed 15 meaning 15%, convert to 0.15
-            if abs(val) > 1.5:
+            if has_pct_sign:
+                # Always divide when explicit % sign: "50%" → 0.50, "-0.5%" → -0.005
                 val /= 100.0
+            elif abs(val) >= 1.0:
+                # No % sign but looks like a whole number percentage: 50 → 0.50
+                val /= 100.0
+            # else: already a decimal like 0.005, leave as-is
             return round(val, 6)
 
         forecast_raw = row.get("sector_growth_forecast") or row.get("growth_forecast") or ""

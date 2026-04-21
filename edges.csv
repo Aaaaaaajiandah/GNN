@@ -225,3 +225,14 @@ JNJ,AMZN,0.18
 JNJ,COST,0.22
 PFE,WMT,0.22
 PFE,AMZN,0.14
+# ── Additional missing edges ─────────────────────────────────────────────────
+INTC,TSLA,0.25
+INTC,TM,0.20
+INTC,VWAGY,0.15
+SSNLF,TSLA,0.20
+SSNLF,TM,0.15
+MU,TSLA,0.20
+TXN,HON,0.22
+TXN,EMR,0.18
+AVGO,DELL,0.25
+AVGO,HPE,0.20

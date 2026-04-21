@@ -1,594 +1,384 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Supply Chain Intelligence</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <style>
-  :root {
-    --bg:      #09090f;
-    --surface: #111118;
-    --border:  #1e1e2e;
-    --accent:  #5b8dee;
-    --green:   #3ddc84;
-    --red:     #ff6b6b;
-    --yellow:  #ffd166;
-    --text:    #e4e4f0;
-    --muted:   #6b6b80;
-    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  }
+/* ── Theme variables ──────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:      #09090f; --surface: #111118; --surface2: #18181f;
+  --border:  #1e1e2e; --accent:  #5b8dee; --green: #3ddc84;
+  --red:     #ff6b6b; --yellow:  #ffd166; --purple: #c084fc;
+  --text:    #e4e4f0; --muted:   #6b6b80; --card: #13131a;
+}
+[data-theme="light"] {
+  --bg:      #f4f4f8; --surface: #ffffff; --surface2: #f0f0f5;
+  --border:  #dddde8; --accent:  #3b6fe0; --green: #1a9e5a;
+  --red:     #d93f3f; --yellow:  #c4880a; --purple: #8b5cf6;
+  --text:    #1a1a2e; --muted:   #6b6b80; --card: #ffffff;
+}
+:root { --font-mono: 'JetBrains Mono','Fira Code',monospace; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--text); font-family:'IBM Plex Sans','Segoe UI',sans-serif; font-size:14px; display:flex; height:100vh; overflow:hidden; transition:background .2s,color .2s; }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── Sidebar ────────────────────────────────────────────────────── */
+#sidebar { width:300px; min-width:300px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+#sidebar-header { padding:14px 16px 10px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+#sidebar-header h1 { font-size:13px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--accent); }
+#sidebar-header p { font-size:10px; color:var(--muted); margin-top:2px; }
+.theme-btn { background:none; border:1px solid var(--border); border-radius:6px; color:var(--text); cursor:pointer; padding:4px 8px; font-size:13px; transition:all .15s; }
+.theme-btn:hover { border-color:var(--accent); }
+#search-box { margin:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:7px 11px; color:var(--text); font-size:13px; width:calc(100% - 24px); outline:none; transition:border-color .2s; }
+#search-box:focus { border-color:var(--accent); }
+#company-list { overflow-y:auto; flex:1; padding:2px 0; }
+.company-item { padding:8px 14px; cursor:pointer; display:flex; align-items:center; gap:8px; border-left:3px solid transparent; transition:background .12s; }
+.company-item:hover { background:rgba(91,141,238,.07); }
+.company-item.active { background:rgba(91,141,238,.13); border-left-color:var(--accent); }
+.ticker-badge { font-family:var(--font-mono); font-size:10px; font-weight:700; background:var(--surface2); padding:2px 5px; border-radius:4px; min-width:38px; text-align:center; color:var(--accent); }
+.company-info { flex:1; min-width:0; }
+.company-name { font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.company-sector { font-size:10px; color:var(--muted); }
+.impact-pill { font-family:var(--font-mono); font-size:10px; padding:1px 5px; border-radius:8px; font-weight:700; }
+.impact-pos { background:rgba(61,220,132,.12); color:var(--green); }
+.impact-neg { background:rgba(255,107,107,.12); color:var(--red); }
+.impact-neu { background:rgba(107,107,128,.12); color:var(--muted); }
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
-    font-size: 14px;
-    display: flex;
-    height: 100vh;
-    overflow: hidden;
-  }
+/* ── Main ─────────────────────────────────────────────────────── */
+#main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+#topbar { height:44px; background:var(--surface); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 16px; gap:4px; }
+.tab-btn { background:none; border:none; color:var(--muted); cursor:pointer; padding:5px 12px; border-radius:5px; font-size:12px; font-weight:600; transition:all .15s; }
+.tab-btn:hover { color:var(--text); background:var(--border); }
+.tab-btn.active { color:var(--accent); background:rgba(91,141,238,.12); }
 
-  /* ── Sidebar ───────────────────────────────────────────────────────── */
-  #sidebar {
-    width: 320px;
-    min-width: 320px;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
+/* ── Views ─────────────────────────────────────────────────────── */
+.view { display:none; flex:1; overflow:hidden; }
+.view.active { display:flex; }
 
-  #sidebar-header {
-    padding: 18px 20px 14px;
-    border-bottom: 1px solid var(--border);
-  }
+/* ── Graph ─────────────────────────────────────────────────────── */
+#view-graph { position:relative; }
+#graph-svg { width:100%; height:100%; background:var(--bg); }
+.node circle { stroke-width:2; cursor:pointer; }
+.node text { font-size:9px; fill:var(--text); pointer-events:none; font-family:var(--font-mono); }
+.link { stroke-width:1.2; marker-end:url(#arrow); }
+#graph-controls { position:absolute; top:12px; right:12px; display:flex; gap:5px; }
+.ctrl-btn { background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:5px; padding:5px 9px; cursor:pointer; font-size:11px; transition:all .15s; }
+.ctrl-btn:hover { border-color:var(--accent); color:var(--accent); }
 
-  #sidebar-header h1 {
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
+/* ── Detail panel ─────────────────────────────────────────────── */
+#detail-panel { position:absolute; bottom:0; left:0; right:0; max-height:60%; background:var(--surface); border-top:1px solid var(--border); overflow-y:auto; transform:translateY(100%); transition:transform .28s cubic-bezier(.4,0,.2,1); z-index:10; }
+#detail-panel.open { transform:translateY(0); }
+#detail-inner { padding:18px 22px 22px; }
+.detail-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
+.detail-title { font-size:19px; font-weight:700; }
+.detail-subtitle { font-size:11px; color:var(--muted); margin-top:3px; }
+.close-btn { background:none; border:none; color:var(--muted); cursor:pointer; font-size:18px; padding:0 3px; }
+.close-btn:hover { color:var(--text); }
+.metrics-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; margin-bottom:16px; }
+.metric-card { background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:9px 12px; }
+.metric-label { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+.metric-value { font-size:17px; font-weight:700; font-family:var(--font-mono); margin-top:2px; }
+.supply-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.supply-col h3 { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:7px; display:flex; align-items:center; gap:5px; }
+.supply-col h3 span { font-size:9px; padding:1px 5px; border-radius:3px; }
+.up-label { background:rgba(255,209,102,.1); color:var(--yellow); }
+.dn-label { background:rgba(61,220,132,.1); color:var(--green); }
+.supply-item { background:var(--bg); border:1px solid var(--border); border-radius:5px; padding:7px 10px; margin-bottom:5px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; transition:border-color .12s; }
+.supply-item:hover { border-color:var(--accent); }
+.supply-item-name { font-size:12px; font-weight:600; }
+.supply-item-sub { font-size:10px; color:var(--muted); }
+.str-bar { height:3px; background:var(--border); border-radius:2px; width:50px; overflow:hidden; margin-top:3px; }
+.str-fill { height:100%; background:var(--accent); border-radius:2px; }
 
-  #sidebar-header p {
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 3px;
-  }
+/* ── Shock ────────────────────────────────────────────────────── */
+#view-shock { flex-direction:column; }
+#shock-layout { display:grid; grid-template-columns:320px 1fr; height:100%; overflow:hidden; }
+#shock-controls { border-right:1px solid var(--border); padding:18px; overflow-y:auto; }
+#shock-controls h2 { font-size:13px; font-weight:700; margin-bottom:14px; }
+.form-group { margin-bottom:12px; }
+.form-label { display:block; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+.form-select, .form-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:5px; padding:7px 10px; color:var(--text); font-size:13px; outline:none; transition:border-color .2s; }
+.form-select:focus,.form-input:focus { border-color:var(--accent); }
+.range-wrap { display:flex; align-items:center; gap:8px; }
+.range-wrap input[type=range] { flex:1; accent-color:var(--accent); }
+.range-val { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--accent); min-width:46px; text-align:right; }
+.run-btn { width:100%; background:var(--accent); color:#fff; border:none; border-radius:7px; padding:10px; font-size:13px; font-weight:700; cursor:pointer; margin-top:4px; transition:opacity .15s; }
+.run-btn:hover { opacity:.88; }
+.info-box { margin-top:16px; font-size:11px; color:var(--muted); line-height:1.7; background:var(--surface2); border-radius:6px; padding:10px 12px; }
+#shock-results { padding:18px; overflow-y:auto; }
+#shock-results h2 { font-size:13px; font-weight:700; margin-bottom:12px; }
+.result-row { display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--surface); border:1px solid var(--border); border-radius:7px; margin-bottom:5px; cursor:pointer; transition:border-color .12s; }
+.result-row:hover { border-color:var(--accent); }
+.result-bar-wrap { flex:1; }
+.result-bar { height:5px; background:var(--border); border-radius:3px; overflow:hidden; }
+.result-bar-fill { height:100%; border-radius:3px; }
+.delta-val { font-family:var(--font-mono); font-size:11px; font-weight:700; min-width:56px; text-align:right; }
+.rel-badge { font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; white-space:nowrap; }
 
-  #search-box {
-    margin: 12px 16px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 12px;
-    color: var(--text);
-    font-size: 13px;
-    width: calc(100% - 32px);
-    outline: none;
-    transition: border-color .2s;
-  }
-  #search-box:focus { border-color: var(--accent); }
+/* ── Sectors bubble ───────────────────────────────────────────── */
+#view-sectors { flex-direction:column; overflow:hidden; }
+#sector-topbar { padding:12px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; background:var(--surface); }
+#sector-topbar h2 { font-size:13px; font-weight:700; }
+#sector-content { display:grid; grid-template-columns:1fr 340px; flex:1; overflow:hidden; }
+#bubble-svg-wrap { overflow:hidden; position:relative; }
+#sector-detail { border-left:1px solid var(--border); padding:18px; overflow-y:auto; background:var(--surface); }
+#sector-detail h3 { font-size:15px; font-weight:700; margin-bottom:4px; }
+#sector-detail .sector-stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:12px 0; }
+.s-stat { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; }
+.s-stat-label { font-size:9px; color:var(--muted); text-transform:uppercase; }
+.s-stat-val { font-size:15px; font-weight:700; font-family:var(--font-mono); margin-top:2px; }
+.s-company-list { display:flex; flex-direction:column; gap:4px; }
+.s-co-row { display:flex; align-items:center; gap:8px; padding:6px 8px; background:var(--bg); border:1px solid var(--border); border-radius:5px; cursor:pointer; transition:border-color .12s; }
+.s-co-row:hover { border-color:var(--accent); }
 
-  #company-list {
-    overflow-y: auto;
-    flex: 1;
-    padding: 4px 0;
-  }
+/* ── Investment Calculator ───────────────────────────────────── */
+#view-invest { flex-direction:column; overflow:hidden; }
+#invest-layout { display:grid; grid-template-columns:360px 1fr; height:100%; overflow:hidden; }
+#invest-controls { border-right:1px solid var(--border); padding:18px; overflow-y:auto; background:var(--surface); }
+#invest-controls h2 { font-size:13px; font-weight:700; margin-bottom:14px; }
+#invest-results { padding:18px; overflow-y:auto; }
+#invest-results h2 { font-size:13px; font-weight:700; margin-bottom:12px; }
+.preset-btn { display:inline-block; background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:4px 9px; font-size:11px; cursor:pointer; margin:0 4px 6px 0; transition:all .15s; color:var(--text); }
+.preset-btn:hover,.preset-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(91,141,238,.08); }
+.invest-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px 16px; margin-bottom:8px; }
+.invest-card-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.invest-card-title { font-size:13px; font-weight:700; flex:1; }
+.invest-return { font-family:var(--font-mono); font-size:16px; font-weight:700; }
+.invest-breakdown { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:8px; }
+.inv-b { background:var(--bg); border-radius:5px; padding:6px 8px; }
+.inv-b-label { font-size:9px; color:var(--muted); text-transform:uppercase; }
+.inv-b-val { font-size:13px; font-weight:700; font-family:var(--font-mono); margin-top:1px; }
+.portfolio-summary { background:rgba(91,141,238,.08); border:1px solid rgba(91,141,238,.25); border-radius:8px; padding:14px 16px; margin-bottom:16px; display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.ps-item { text-align:center; }
+.ps-label { font-size:10px; color:var(--muted); }
+.ps-val { font-size:18px; font-weight:700; font-family:var(--font-mono); color:var(--accent); margin-top:2px; }
 
-  .company-item {
-    padding: 9px 16px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    border-bottom: 1px solid transparent;
-    transition: background .15s;
-  }
-  .company-item:hover { background: rgba(91,141,238,.08); }
-  .company-item.active { background: rgba(91,141,238,.15); border-left: 3px solid var(--accent); }
+/* ── Loading ────────────────────────────────────────────────────── */
+#loading { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; z-index:999; }
+.spinner { width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loading p { color:var(--muted); font-size:12px; }
 
-  .ticker-badge {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    background: var(--border);
-    padding: 2px 6px;
-    border-radius: 4px;
-    min-width: 42px;
-    text-align: center;
-    color: var(--accent);
-  }
-
-  .company-info { flex: 1; }
-  .company-name { font-size: 13px; font-weight: 600; }
-  .company-sector { font-size: 11px; color: var(--muted); }
-
-  .impact-pill {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: 10px;
-    font-weight: 700;
-  }
-  .impact-pos { background: rgba(61,220,132,.12); color: var(--green); }
-  .impact-neg { background: rgba(255,107,107,.12); color: var(--red); }
-  .impact-neu { background: rgba(107,107,128,.12); color: var(--muted); }
-
-  /* ── Main area ─────────────────────────────────────────────────────── */
-  #main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  /* ── Top bar ───────────────────────────────────────────────────────── */
-  #topbar {
-    height: 48px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    padding: 0 20px;
-    gap: 12px;
-  }
-
-  .tab-btn {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    transition: all .15s;
-  }
-  .tab-btn:hover { color: var(--text); background: var(--border); }
-  .tab-btn.active { color: var(--accent); background: rgba(91,141,238,.12); }
-
-  /* ── Views ─────────────────────────────────────────────────────────── */
-  .view { display: none; flex: 1; overflow: hidden; }
-  .view.active { display: flex; }
-
-  /* ── Graph view ────────────────────────────────────────────────────── */
-  #view-graph { position: relative; }
-
-  #graph-svg {
-    width: 100%;
-    height: 100%;
-    background: var(--bg);
-  }
-
-  .node circle {
-    stroke-width: 2;
-    cursor: pointer;
-    transition: r .2s;
-  }
-  .node text {
-    font-size: 10px;
-    fill: var(--text);
-    pointer-events: none;
-    font-family: var(--font-mono);
-  }
-  .link {
-    stroke: rgba(91,141,238,.25);
-    stroke-width: 1.2;
-    marker-end: url(#arrow);
-  }
-  .link.highlighted { stroke: var(--accent); stroke-width: 2; }
-
-  #graph-controls {
-    position: absolute;
-    top: 14px;
-    right: 14px;
-    display: flex;
-    gap: 6px;
-  }
-  .ctrl-btn {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 6px 10px;
-    cursor: pointer;
-    font-size: 12px;
-    transition: all .15s;
-  }
-  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
-
-  /* ── Detail panel ──────────────────────────────────────────────────── */
-  #detail-panel {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    max-height: 55%;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    overflow-y: auto;
-    transform: translateY(100%);
-    transition: transform .3s cubic-bezier(.4,0,.2,1);
-    z-index: 10;
-  }
-  #detail-panel.open { transform: translateY(0); }
-
-  #detail-inner { padding: 20px 24px; }
-
-  .detail-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 16px;
-  }
-
-  .detail-title { font-size: 20px; font-weight: 700; }
-  .detail-subtitle { font-size: 12px; color: var(--muted); margin-top: 3px; }
-
-  .close-btn {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 20px;
-    padding: 0 4px;
-    line-height: 1;
-  }
-  .close-btn:hover { color: var(--text); }
-
-  .metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 10px;
-    margin-bottom: 18px;
-  }
-
-  .metric-card {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 14px;
-  }
-  .metric-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-  .metric-value { font-size: 18px; font-weight: 700; font-family: var(--font-mono); margin-top: 2px; }
-
-  .supply-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-  }
-
-  .supply-col h3 {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: .05em;
-    color: var(--muted);
-    margin-bottom: 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .supply-col h3 span {
-    font-size: 10px;
-    padding: 1px 6px;
-    border-radius: 4px;
-  }
-  .upstream-label { background: rgba(255,209,102,.1); color: var(--yellow); }
-  .downstream-label { background: rgba(61,220,132,.1); color: var(--green); }
-
-  .supply-item {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 12px;
-    margin-bottom: 6px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: pointer;
-    transition: border-color .15s;
-  }
-  .supply-item:hover { border-color: var(--accent); }
-  .supply-item-left .name { font-size: 13px; font-weight: 600; }
-  .supply-item-left .sub  { font-size: 11px; color: var(--muted); }
-
-  .strength-bar-wrap { width: 60px; }
-  .strength-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
-  .strength-fill { height: 100%; background: var(--accent); border-radius: 2px; }
-
-  /* ── Shock view ────────────────────────────────────────────────────── */
-  #view-shock {
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  #shock-layout {
-    display: grid;
-    grid-template-columns: 340px 1fr;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  #shock-controls {
-    border-right: 1px solid var(--border);
-    padding: 20px;
-    overflow-y: auto;
-  }
-
-  #shock-controls h2 { font-size: 14px; font-weight: 700; margin-bottom: 16px; }
-
-  .form-group { margin-bottom: 14px; }
-  .form-label {
-    display: block;
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: .05em;
-    margin-bottom: 5px;
-  }
-  .form-select, .form-input {
-    width: 100%;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 12px;
-    color: var(--text);
-    font-size: 13px;
-    outline: none;
-    transition: border-color .2s;
-  }
-  .form-select:focus, .form-input:focus { border-color: var(--accent); }
-
-  .range-wrap { display: flex; align-items: center; gap: 10px; }
-  .range-wrap input[type=range] { flex: 1; accent-color: var(--accent); }
-  .range-val {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--accent);
-    min-width: 44px;
-    text-align: right;
-  }
-
-  .run-btn {
-    width: 100%;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: 8px;
-    padding: 11px;
-    font-size: 14px;
-    font-weight: 700;
-    cursor: pointer;
-    margin-top: 6px;
-    transition: opacity .15s;
-  }
-  .run-btn:hover { opacity: .88; }
-
-  #shock-results {
-    padding: 20px;
-    overflow-y: auto;
-  }
-
-  #shock-results h2 { font-size: 14px; font-weight: 700; margin-bottom: 14px; }
-
-  .result-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 9px 12px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 6px;
-    cursor: pointer;
-    transition: border-color .15s;
-  }
-  .result-row:hover { border-color: var(--accent); }
-
-  .result-bar-wrap { flex: 1; }
-  .result-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
-  .result-bar-fill { height: 100%; border-radius: 3px; }
-
-  .delta-val {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 700;
-    min-width: 60px;
-    text-align: right;
-  }
-
-  /* ── Sectors view ──────────────────────────────────────────────────── */
-  #view-sectors {
-    padding: 20px;
-    overflow-y: auto;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 14px;
-    align-content: start;
-  }
-
-  .sector-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
-    transition: border-color .15s;
-  }
-  .sector-card:hover { border-color: var(--accent); }
-  .sector-name { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
-  .sector-meta { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
-  .sector-companies { display: flex; flex-wrap: wrap; gap: 6px; }
-  .sector-company-chip {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 3px 8px;
-    font-size: 11px;
-    cursor: pointer;
-    font-family: var(--font-mono);
-    transition: all .15s;
-  }
-  .sector-company-chip:hover { border-color: var(--accent); color: var(--accent); }
-
-  /* ── Loading ───────────────────────────────────────────────────────── */
-  #loading {
-    position: fixed;
-    inset: 0;
-    background: var(--bg);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    z-index: 999;
-  }
-  .spinner {
-    width: 40px; height: 40px;
-    border: 3px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin .7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #loading p { color: var(--muted); font-size: 13px; }
-
-  /* scrollbar */
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+/* scrollbar */
+::-webkit-scrollbar { width:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
 </style>
 </head>
 <body>
 
-<div id="loading">
-  <div class="spinner"></div>
-  <p>Loading supply chain graph…</p>
-</div>
+<div id="loading"><div class="spinner"></div><p>Loading supply chain graph…</p></div>
 
-<!-- ── Sidebar ─────────────────────────────────────────────── -->
+<!-- ── Sidebar ─────────────────────────────────────────── -->
 <div id="sidebar">
   <div id="sidebar-header">
-    <h1>Supply Chain Intelligence</h1>
-    <p>GNN · XPU · BF16</p>
+    <div><h1>Supply Chain Intel</h1><p>GNN · XPU · BF16</p></div>
+    <button class="theme-btn" onclick="toggleTheme()" id="theme-btn">☀️</button>
   </div>
   <input id="search-box" type="text" placeholder="Search companies, sectors…">
   <div id="company-list"></div>
 </div>
 
-<!-- ── Main ────────────────────────────────────────────────── -->
+<!-- ── Main ──────────────────────────────────────────────── -->
 <div id="main">
   <div id="topbar">
-    <button class="tab-btn active" onclick="switchTab('graph')">Graph</button>
-    <button class="tab-btn" onclick="switchTab('shock')">Shock Propagation</button>
-    <button class="tab-btn" onclick="switchTab('sectors')">Sectors</button>
+    <button class="tab-btn active" onclick="switchTab('graph',this)">Graph</button>
+    <button class="tab-btn" onclick="switchTab('shock',this)">Shock Propagation</button>
+    <button class="tab-btn" onclick="switchTab('sectors',this)">Sector Bubbles</button>
+    <button class="tab-btn" onclick="switchTab('invest',this)">Investment Calculator</button>
   </div>
 
-  <!-- Graph view -->
+  <!-- Graph -->
   <div class="view active" id="view-graph">
     <svg id="graph-svg">
       <defs>
-        <marker id="arrow" markerWidth="6" markerHeight="6"
-                refX="5" refY="3" orient="auto">
-          <path d="M0,0 L0,6 L6,3 z" fill="rgba(91,141,238,.5)"/>
+        <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="rgba(91,141,238,.4)"/>
         </marker>
       </defs>
     </svg>
     <div id="graph-controls">
       <button class="ctrl-btn" onclick="resetZoom()">Reset</button>
       <button class="ctrl-btn" onclick="toggleLabels()">Labels</button>
+      <button class="ctrl-btn" onclick="colorBy='impact';redrawNodes()">By Impact</button>
+      <button class="ctrl-btn" onclick="colorBy='sector';redrawNodes()">By Sector</button>
     </div>
     <div id="detail-panel">
       <div id="detail-inner"></div>
     </div>
   </div>
 
-  <!-- Shock view -->
+  <!-- Shock -->
   <div class="view" id="view-shock">
     <div id="shock-layout">
       <div id="shock-controls">
-        <h2>Run Sector Shock</h2>
+        <h2>Shock Propagation</h2>
         <div class="form-group">
-          <label class="form-label">Sector</label>
-          <select class="form-select" id="shock-sector">
-            <option value="">— all sectors —</option>
+          <label class="form-label">Mode</label>
+          <select class="form-select" id="shock-mode" onchange="updateShockMode()">
+            <option value="sector">By Sector</option>
+            <option value="company">By Company</option>
           </select>
         </div>
+        <div class="form-group" id="shock-sector-group">
+          <label class="form-label">Sector</label>
+          <select class="form-select" id="shock-sector"><option value="">— all —</option></select>
+        </div>
+        <div class="form-group" id="shock-company-group" style="display:none">
+          <label class="form-label">Company</label>
+          <select class="form-select" id="shock-company"></select>
+        </div>
         <div class="form-group">
-          <label class="form-label">Growth signal (%)</label>
+          <label class="form-label">Growth Signal</label>
           <div class="range-wrap">
-            <input type="range" id="shock-range" min="-50" max="100" value="50"
-                   oninput="document.getElementById('shock-range-val').textContent = this.value + '%'">
+            <input type="range" id="shock-range" min="-80" max="150" value="50"
+                   oninput="document.getElementById('shock-range-val').textContent=this.value+'%'">
             <span class="range-val" id="shock-range-val">50%</span>
           </div>
         </div>
         <button class="run-btn" onclick="runShock()">▶ Run Propagation</button>
-        <div style="margin-top:20px; font-size:11px; color:var(--muted); line-height:1.7">
+        <div class="info-box">
           <strong style="color:var(--text)">How it works</strong><br>
-          The GNN propagates the sector shock upstream (suppliers feel demand pressure) and
-          downstream (customers see cost/supply changes). Impact scores are normalized
-          revenue-impact predictions from the trained model.
+          The GNN diffuses the growth signal upstream (suppliers feel demand pressure) and downstream (customers see cost/supply changes). Impact scores show predicted revenue-impact % from the trained model.<br><br>
+          <span style="color:var(--accent)">⚡ Direct</span> — companies in the shocked sector<br>
+          <span style="color:var(--yellow)">↑ Supplier</span> — upstream suppliers<br>
+          <span style="color:var(--green)">↓ Customer</span> — downstream customers<br>
+          <span style="color:var(--muted)">~ Indirect</span> — second-order effects
         </div>
       </div>
-      <div id="shock-results">
-        <h2>Impact Results</h2>
-        <p style="color:var(--muted); font-size:12px">Run a shock to see propagation results.</p>
-      </div>
+      <div id="shock-results"><h2>Impact Results</h2><p style="color:var(--muted);font-size:12px">Run a shock to see results.</p></div>
     </div>
   </div>
 
-  <!-- Sectors view -->
-  <div class="view" id="view-sectors" id="view-sectors"></div>
+  <!-- Sector Bubbles -->
+  <div class="view" id="view-sectors">
+    <div id="sector-topbar">
+      <h2>Sector Map</h2>
+      <span style="font-size:11px;color:var(--muted)">Bubble size = total market cap · Click sector to explore</span>
+    </div>
+    <div id="sector-content">
+      <div id="bubble-svg-wrap"><svg id="bubble-svg" style="width:100%;height:100%"></svg></div>
+      <div id="sector-detail"><p style="color:var(--muted);font-size:12px;margin-top:40px;text-align:center">Click a sector bubble</p></div>
+    </div>
+  </div>
+
+  <!-- Investment Calculator -->
+  <div class="view" id="view-invest">
+    <div id="invest-layout">
+      <div id="invest-controls">
+        <h2>Investment Calculator</h2>
+        <div class="form-group">
+          <label class="form-label">Initial Investment ($)</label>
+          <input class="form-input" type="number" id="inv-amount" value="10000" step="1000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Time Horizon (years)</label>
+          <div class="range-wrap">
+            <input type="range" id="inv-years" min="1" max="20" value="5"
+                   oninput="document.getElementById('inv-years-val').textContent=this.value+'y'">
+            <span class="range-val" id="inv-years-val">5y</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Scenario</label>
+          <select class="form-select" id="inv-scenario">
+            <option value="forecast">Use Growth Forecasts</option>
+            <option value="bull">Bull Case (+30%)</option>
+            <option value="base">Base Case (+15%)</option>
+            <option value="bear">Bear Case (-10%)</option>
+            <option value="custom">Custom %</option>
+          </select>
+        </div>
+        <div class="form-group" id="inv-custom-group" style="display:none">
+          <label class="form-label">Custom Annual Growth %</label>
+          <div class="range-wrap">
+            <input type="range" id="inv-custom-pct" min="-30" max="100" value="20"
+                   oninput="document.getElementById('inv-custom-val').textContent=this.value+'%'">
+            <span class="range-val" id="inv-custom-val">20%</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Filter by Sector</label>
+          <select class="form-select" id="inv-sector"><option value="">All sectors</option></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Quick Presets</label><br>
+          <button class="preset-btn" onclick="loadPreset('ai')">AI Infrastructure</button>
+          <button class="preset-btn" onclick="loadPreset('auto')">EV Transition</button>
+          <button class="preset-btn" onclick="loadPreset('memory')">Memory Boom</button>
+          <button class="preset-btn" onclick="loadPreset('top5')">Top 5 Impact</button>
+        </div>
+        <button class="run-btn" onclick="runCalculator()">📊 Calculate Returns</button>
+      </div>
+      <div id="invest-results"><h2>Projected Returns</h2><p style="color:var(--muted);font-size:12px">Configure and calculate to see projections.</p></div>
+    </div>
+  </div>
 </div>
 
 <script>
-// ─── State ──────────────────────────────────────────────────────────────────
+// ─── State ───────────────────────────────────────────────────────
 let graphData = null;
 let simulation = null;
-let svg, g;
+let svg, g, allNodes, allLinks;
 let showLabels = true;
-let activeCompanyId = null;
+let colorBy = 'sector';
+let activeId = null;
+let sectorData = null;
 
-// ─── Utilities ──────────────────────────────────────────────────────────────
-const fmt = (n) => n > 0 ? `+${(n*100).toFixed(1)}%` : `${(n*100).toFixed(1)}%`;
-const fmtImpact = (n) => (n*100).toFixed(2) + '%';
-const color = (n) => n > 0.005 ? 'var(--green)' : n < -0.005 ? 'var(--red)' : 'var(--muted)';
+const SECTOR_COLORS = {};
+const palette = ['#5b8dee','#3ddc84','#ffd166','#ff6b6b','#c084fc','#38bdf8','#fb923c','#f472b6','#a3e635','#2dd4bf'];
 
-function impactClass(n) {
-  return n > 0.003 ? 'impact-pos' : n < -0.003 ? 'impact-neg' : 'impact-neu';
+// ─── Util ────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const fmtM = n => n >= 1000 ? `$${(n/1000).toFixed(1)}T` : `$${n.toFixed(0)}B`;
+const fmtPct = n => (n >= 0 ? '+' : '') + n.toFixed(1) + '%';
+const fmtDollar = n => n >= 1e9 ? `$${(n/1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(0)}M` : `$${n.toFixed(0)}`;
+const impactClass = n => n > 0.3 ? 'impact-pos' : n < -0.3 ? 'impact-neg' : 'impact-neu';
+const color = n => n > 0.3 ? 'var(--green)' : n < -0.3 ? 'var(--red)' : 'var(--muted)';
+
+// ─── Theme ───────────────────────────────────────────────────────
+function toggleTheme() {
+  const h = document.documentElement;
+  const isDark = h.getAttribute('data-theme') === 'dark';
+  h.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  $('theme-btn').textContent = isDark ? '🌙' : '☀️';
+  if (svg) svg.select('#graph-svg-bg').attr('fill', isDark ? '#f4f4f8' : '#09090f');
 }
 
-// ─── Tabs ────────────────────────────────────────────────────────────────────
-function switchTab(name) {
+// ─── Tabs ────────────────────────────────────────────────────────
+function switchTab(name, btn) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('view-' + name).classList.add('active');
-  event.target.classList.add('active');
+  $(`view-${name}`).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'sectors' && sectorData) buildBubbles();
+  if (name === 'invest') populateInvestSectors();
 }
 
-// ─── Load data ───────────────────────────────────────────────────────────────
+// ─── Init ────────────────────────────────────────────────────────
 async function init() {
-  const res = await fetch('/api/graph');
-  graphData = await res.json();
+  const [graph, sectors] = await Promise.all([
+    fetch('/api/graph').then(r => r.json()),
+    fetch('/api/sectors').then(r => r.json()),
+  ]);
+  graphData = graph;
+  sectorData = sectors;
 
-  document.getElementById('loading').style.display = 'none';
+  // Build sector color map
+  const sectorNames = [...new Set(graph.nodes.map(n => n.sector))];
+  sectorNames.forEach((s, i) => SECTOR_COLORS[s] = palette[i % palette.length]);
 
-  buildSidebar(graphData.nodes);
-  buildGraph(graphData);
-  buildSectors();
-  populateSectorSelect();
+  $('loading').style.display = 'none';
+  buildSidebar(graph.nodes);
+  buildGraph(graph);
+  populateShockSelects(sectors);
+  populateInvestSectors();
 }
 
-// ─── Sidebar ─────────────────────────────────────────────────────────────────
+// ─── Sidebar ─────────────────────────────────────────────────────
 function buildSidebar(nodes) {
-  const list = document.getElementById('company-list');
+  const list = $('company-list');
   list.innerHTML = '';
   nodes.forEach(n => {
     const div = document.createElement('div');
@@ -600,271 +390,403 @@ function buildSidebar(nodes) {
         <div class="company-name">${n.name}</div>
         <div class="company-sector">${n.sector}</div>
       </div>
-      <span class="impact-pill ${impactClass(n.impact)}">${fmtImpact(n.impact)}</span>
-    `;
+      <span class="impact-pill ${impactClass(n.impact)}">${fmtPct(n.impact)}</span>`;
     div.onclick = () => selectCompany(n.id);
     list.appendChild(div);
   });
 }
 
-document.getElementById('search-box').addEventListener('input', function() {
+$('search-box').addEventListener('input', function() {
   const q = this.value.toLowerCase();
   document.querySelectorAll('.company-item').forEach(el => {
-    const text = el.textContent.toLowerCase();
-    el.style.display = text.includes(q) ? '' : 'none';
+    el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
   });
 });
 
-// ─── Graph ────────────────────────────────────────────────────────────────────
+// ─── Graph ───────────────────────────────────────────────────────
 function buildGraph(data) {
-  const container = document.getElementById('view-graph');
-  const W = container.clientWidth, H = container.clientHeight;
+  const wrap = $('view-graph');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
 
   svg = d3.select('#graph-svg');
-  const zoom = d3.zoom().scaleExtent([0.1, 4]).on('zoom', e => g.attr('transform', e.transform));
+  const zoom = d3.zoom().scaleExtent([.08, 5]).on('zoom', e => g.attr('transform', e.transform));
   svg.call(zoom);
-
   g = svg.append('g');
-
-  const sectorColors = d3.scaleOrdinal(d3.schemeTableau10);
-  const sectorList = [...new Set(data.nodes.map(n => n.sector))];
-  const colorOf = s => sectorColors(sectorList.indexOf(s));
 
   const impactScale = d3.scaleLinear()
     .domain([d3.min(data.nodes, n => n.impact), d3.max(data.nodes, n => n.impact)])
-    .range([8, 22]);
+    .range([7, 22]);
 
-  // Links
-  const links = g.selectAll('.link')
-    .data(data.edges)
-    .enter().append('line')
+  allLinks = g.selectAll('.link')
+    .data(data.edges).enter().append('line')
     .attr('class', 'link')
-    .style('opacity', d => 0.15 + d.strength * 0.6);
+    .attr('stroke', 'rgba(91,141,238,.2)')
+    .style('opacity', d => .1 + d.strength * .7);
 
-  // Nodes
-  const nodes = g.selectAll('.node')
-    .data(data.nodes)
-    .enter().append('g')
-    .attr('class', 'node')
+  allNodes = g.selectAll('.node')
+    .data(data.nodes).enter().append('g').attr('class', 'node')
     .call(d3.drag()
-      .on('start', (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
-      .on('drag',  (e, d) => { d.fx=e.x; d.fy=e.y; })
-      .on('end',   (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; })
-    )
-    .on('click', (e, d) => { e.stopPropagation(); selectCompany(d.id); });
+      .on('start', (e,d) => { if(!e.active) simulation.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e,d) => { if(!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; }))
+    .on('click', (e,d) => { e.stopPropagation(); selectCompany(d.id); });
 
-  nodes.append('circle')
+  allNodes.append('circle')
     .attr('r', d => impactScale(d.impact))
-    .attr('fill', d => colorOf(d.sector) + '33')
-    .attr('stroke', d => colorOf(d.sector));
+    .attr('fill', d => SECTOR_COLORS[d.sector] + '28')
+    .attr('stroke', d => SECTOR_COLORS[d.sector]);
 
-  const labels = nodes.append('text')
-    .text(d => d.ticker)
-    .attr('dy', '0.35em')
-    .attr('text-anchor', 'middle');
+  allNodes.append('text').text(d => d.ticker).attr('dy','0.35em').attr('text-anchor','middle');
 
-  window._graphLabels = labels;
+  window._impactScale = impactScale;
 
-  // Simulation
   simulation = d3.forceSimulation(data.nodes)
-    .force('link', d3.forceLink(data.edges).id(d => d.id).distance(80).strength(0.3))
-    .force('charge', d3.forceManyBody().strength(-220))
-    .force('center', d3.forceCenter(W / 2, H / 2))
-    .force('collision', d3.forceCollide(d => impactScale(d.impact) + 6))
+    .force('link', d3.forceLink(data.edges).id(d => d.id).distance(70).strength(.25))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide(d => impactScale(d.impact) + 5))
     .on('tick', () => {
-      links
-        .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-      nodes.attr('transform', d => `translate(${d.x},${d.y})`);
+      allLinks.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+              .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      allNodes.attr('transform', d => `translate(${d.x},${d.y})`);
     });
 
-  // Click background to close
-  svg.on('click', () => closeDetail());
+  svg.on('click', closeDetail);
+}
+
+function redrawNodes() {
+  if (!allNodes) return;
+  allNodes.select('circle')
+    .attr('fill', d => colorBy === 'impact'
+      ? (d.impact > 1 ? 'rgba(61,220,132,.25)' : d.impact < -1 ? 'rgba(255,107,107,.25)' : 'rgba(107,107,128,.2)')
+      : SECTOR_COLORS[d.sector] + '28')
+    .attr('stroke', d => colorBy === 'impact'
+      ? (d.impact > 1 ? 'var(--green)' : d.impact < -1 ? 'var(--red)' : 'var(--muted)')
+      : SECTOR_COLORS[d.sector]);
 }
 
 function resetZoom() {
-  svg.transition().duration(600).call(
-    d3.zoom().transform, d3.zoomIdentity
-  );
+  d3.select('#graph-svg').transition().duration(500).call(d3.zoom().transform, d3.zoomIdentity);
 }
-
 function toggleLabels() {
   showLabels = !showLabels;
-  if (window._graphLabels)
-    window._graphLabels.style('display', showLabels ? null : 'none');
+  if (allNodes) allNodes.select('text').style('display', showLabels ? null : 'none');
 }
 
-// ─── Company detail ───────────────────────────────────────────────────────────
+// ─── Detail panel ────────────────────────────────────────────────
 async function selectCompany(id) {
-  activeCompanyId = id;
+  activeId = id;
+  document.querySelectorAll('.company-item').forEach(el => el.classList.toggle('active', +el.dataset.id === id));
+  const c = await fetch(`/api/company/${id}`).then(r => r.json());
+  const panel = $('detail-panel');
+  const inner = $('detail-inner');
 
-  // Highlight sidebar
-  document.querySelectorAll('.company-item').forEach(el => {
-    el.classList.toggle('active', +el.dataset.id === id);
-  });
-
-  const res = await fetch(`/api/company/${id}`);
-  const c = await res.json();
-
-  const panel = document.getElementById('detail-panel');
-  const inner = document.getElementById('detail-inner');
+  const forecastLabel = c.forecast_specific
+    ? `Company forecast: <strong style="color:var(--green)">${c.forecast}%</strong> over ${c.forecast_months}mo`
+    : `Sector default: <strong style="color:var(--yellow)">${c.forecast}%</strong> over ${c.forecast_months}mo`;
 
   inner.innerHTML = `
     <div class="detail-header">
       <div>
-        <div class="detail-title">${c.name} <span style="font-family:var(--font-mono);font-size:14px;color:var(--muted)">(${c.ticker})</span></div>
-        <div class="detail-subtitle">${c.sector} · ${(c.forecast !== null && c.forecast !== undefined) ? `Sector growth forecast: <strong style="color:var(--green)">${(c.forecast*100).toFixed(0)}%</strong> over ${c.forecast_months}mo` : 'No growth forecast'}</div>
+        <div class="detail-title">${c.name} <span style="font-family:var(--font-mono);font-size:13px;color:var(--muted)">(${c.ticker})</span></div>
+        <div class="detail-subtitle">${c.sector} · ${forecastLabel}</div>
       </div>
       <button class="close-btn" onclick="closeDetail()">×</button>
     </div>
     <div class="metrics-grid">
-      ${metric('Revenue', '$' + c.revenue_bn + 'B')}
-      ${metric('Margin', (c.margin*100).toFixed(1) + '%', c.margin > 0 ? 'var(--green)' : 'var(--red)')}
-      ${metric('YoY Growth', fmt(c.yoy_growth), c.yoy_growth > 0 ? 'var(--green)' : 'var(--red)')}
-      ${metric('Market Cap', '$' + c.market_cap_bn + 'B')}
-      ${metric('Debt Ratio', c.debt_ratio.toFixed(2))}
-      ${metric('R&D %', (c.r_and_d_pct*100).toFixed(1) + '%')}
-      ${metric('CapEx %', (c.capex_pct*100).toFixed(1) + '%')}
-      ${metric('GNN Impact', fmtImpact(c.impact), color(c.impact))}
+      ${M('Revenue', '$' + c.revenue_bn + 'B')}
+      ${M('Margin', c.margin.toFixed(1) + '%', c.margin > 0 ? 'var(--green)' : 'var(--red)')}
+      ${M('YoY Growth', fmtPct(c.yoy_growth), c.yoy_growth > 0 ? 'var(--green)' : 'var(--red)')}
+      ${M('Market Cap', fmtM(c.market_cap_bn))}
+      ${M('Debt Ratio', c.debt_ratio.toFixed(2))}
+      ${M('R&D %', c.r_and_d_pct.toFixed(1) + '%')}
+      ${M('CapEx %', c.capex_pct.toFixed(1) + '%')}
+      ${M('GNN Impact', fmtPct(c.impact), color(c.impact))}
     </div>
     <div class="supply-grid">
       <div class="supply-col">
-        <h3>↑ Suppliers <span class="upstream-label">UPSTREAM</span></h3>
-        ${c.suppliers.length === 0 ? '<p style="color:var(--muted);font-size:12px">No upstream suppliers</p>' :
-          c.suppliers.map(s => supplyItem(s, true)).join('')}
+        <h3>↑ Upstream Suppliers <span class="up-label">SUPPLIERS</span></h3>
+        ${c.suppliers.length ? c.suppliers.map(s => supItem(s, 'up')).join('') : '<p style="color:var(--muted);font-size:11px">No upstream suppliers</p>'}
       </div>
       <div class="supply-col">
-        <h3>↓ Customers <span class="downstream-label">DOWNSTREAM</span></h3>
-        ${c.customers.length === 0 ? '<p style="color:var(--muted);font-size:12px">No downstream customers</p>' :
-          c.customers.map(s => supplyItem(s, false)).join('')}
+        <h3>↓ Downstream Customers <span class="dn-label">CUSTOMERS</span></h3>
+        ${c.customers.length ? c.customers.map(s => supItem(s, 'dn')).join('') : '<p style="color:var(--muted);font-size:11px">No downstream customers</p>'}
       </div>
-    </div>
-  `;
+    </div>`;
 
   panel.classList.add('open');
 }
 
-function metric(label, value, col) {
-  return `<div class="metric-card">
-    <div class="metric-label">${label}</div>
-    <div class="metric-value" style="${col ? 'color:'+col : ''}">${value}</div>
-  </div>`;
+function M(label, val, col) {
+  return `<div class="metric-card"><div class="metric-label">${label}</div><div class="metric-value" style="${col?'color:'+col:''}">${val}</div></div>`;
 }
-
-function supplyItem(s, isSupplier) {
+function supItem(s, dir) {
   const pct = Math.round((s.strength || 0) * 100);
   return `<div class="supply-item" onclick="selectCompany(${s.id})">
-    <div class="supply-item-left">
-      <div class="name">${s.name} <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${s.ticker}</span></div>
-      <div class="sub">${s.sector} · impact ${fmtImpact(s.impact)}</div>
-    </div>
-    <div class="strength-bar-wrap">
-      <div style="font-size:10px;color:var(--muted);text-align:right;margin-bottom:3px">${pct}%</div>
-      <div class="strength-bar"><div class="strength-fill" style="width:${pct}%"></div></div>
-    </div>
+    <div><div class="supply-item-name">${s.name} <span style="font-family:var(--font-mono);font-size:9px;color:var(--muted)">${s.ticker}</span></div>
+    <div class="supply-item-sub">${s.sector} · ${fmtPct(s.impact)}</div>
+    <div class="str-bar"><div class="str-fill" style="width:${pct}%"></div></div></div>
+    <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${pct}%</span>
   </div>`;
 }
-
 function closeDetail() {
-  document.getElementById('detail-panel').classList.remove('open');
+  $('detail-panel').classList.remove('open');
   document.querySelectorAll('.company-item').forEach(el => el.classList.remove('active'));
-  activeCompanyId = null;
+  activeId = null;
 }
 
-// ─── Shock propagation ────────────────────────────────────────────────────────
-function populateSectorSelect() {
-  if (!graphData) return;
-  const sectors = [...new Set(graphData.nodes.map(n => n.sector))].sort();
-  const sel = document.getElementById('shock-sector');
-  sectors.forEach(s => {
-    const opt = document.createElement('option');
-    opt.value = s; opt.textContent = s;
-    sel.appendChild(opt);
+// ─── Shock ───────────────────────────────────────────────────────
+function populateShockSelects(sectors) {
+  const sel = $('shock-sector');
+  Object.keys(sectors).sort().forEach(s => {
+    const o = document.createElement('option');
+    o.value = s; o.textContent = s;
+    sel.appendChild(o);
   });
+  const csel = $('shock-company');
+  graphData.nodes.forEach(n => {
+    const o = document.createElement('option');
+    o.value = n.id; o.textContent = `${n.ticker} — ${n.name}`;
+    csel.appendChild(o);
+  });
+}
+function updateShockMode() {
+  const m = $('shock-mode').value;
+  $('shock-sector-group').style.display = m === 'sector' ? '' : 'none';
+  $('shock-company-group').style.display = m === 'company' ? '' : 'none';
 }
 
 async function runShock() {
-  const sector = document.getElementById('shock-sector').value;
-  const growth = parseFloat(document.getElementById('shock-range').value) / 100;
+  const growth = parseFloat($('shock-range').value);
+  const mode = $('shock-mode').value;
+  const body = { sector_growth: growth };
+  if (mode === 'sector') {
+    body.sector = $('shock-sector').value || undefined;
+  } else {
+    body.shocks = { [$('shock-company').value]: growth };
+  }
 
-  const body = { sector: sector || undefined, sector_growth: growth };
-  const res = await fetch('/api/shock', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
+  const data = await fetch('/api/shock', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  }).then(r => r.json());
 
-  const out = document.getElementById('shock-results');
-  const maxDelta = Math.max(...data.results.map(r => Math.abs(r.delta)));
+  const out = $('shock-results');
+  const maxD = Math.max(...data.results.map(r => Math.abs(r.delta)), 0.001);
 
-  out.innerHTML = `<h2>Impact Results <span style="font-size:11px;color:var(--muted);font-weight:400">— sorted by |Δ impact|</span></h2>`;
+  const relColors = { direct:'var(--accent)', upstream:'var(--yellow)', downstream:'var(--green)', indirect:'var(--muted)' };
+  const relLabels = { direct:'⚡ Direct', upstream:'↑ Supplier', downstream:'↓ Customer', indirect:'~ Indirect' };
 
-  const relationColors = {
-    direct:     'var(--accent)',
-    upstream:   'var(--yellow)',
-    downstream: 'var(--green)',
-    indirect:   'var(--muted)',
-  };
-  const relationLabels = {
-    direct:     '⚡ Direct',
-    upstream:   '↑ Supplier',
-    downstream: '↓ Customer',
-    indirect:   '~ Indirect',
-  };
+  out.innerHTML = `<h2>Impact Results <span style="font-size:10px;color:var(--muted);font-weight:400">— ${data.results.length} companies · sorted by |Δ|</span></h2>`;
 
   data.results.forEach(r => {
-    const pct = maxDelta > 0 ? Math.abs(r.delta) / maxDelta * 100 : 0;
+    const pct = Math.abs(r.delta) / maxD * 100;
     const barColor = r.delta > 0 ? 'var(--green)' : r.delta < 0 ? 'var(--red)' : 'var(--muted)';
-    const relColor = relationColors[r.relation] || 'var(--muted)';
-    const relLabel = relationLabels[r.relation] || r.relation;
+    const rc = relColors[r.relation] || 'var(--muted)';
+    const rl = relLabels[r.relation] || r.relation;
     const div = document.createElement('div');
     div.className = 'result-row';
     div.innerHTML = `
       <span class="ticker-badge">${r.ticker}</span>
       <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</span>
-          <span style="font-size:9px;font-weight:700;color:${relColor};white-space:nowrap;padding:1px 5px;background:${relColor}18;border-radius:3px">${relLabel}</span>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+          <span style="font-size:12px;font-weight:600">${r.name}</span>
+          <span class="rel-badge" style="color:${rc};background:${rc}18">${rl}</span>
         </div>
         <div style="font-size:10px;color:var(--muted)">${r.sector}</div>
         <div class="result-bar-wrap" style="margin-top:4px">
           <div class="result-bar"><div class="result-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
         </div>
       </div>
-      <div class="delta-val" style="color:${barColor}">${fmt(r.delta)}</div>
-    `;
-    div.onclick = () => { switchTab('graph'); setTimeout(() => selectCompany(r.id), 100); };
+      <div class="delta-val" style="color:${barColor}">${r.delta >= 0 ? '+' : ''}${r.delta.toFixed(2)}%</div>`;
+    div.onclick = () => { switchTab('graph', document.querySelector('.tab-btn')); setTimeout(() => selectCompany(r.id), 80); };
     out.appendChild(div);
   });
 }
 
-// ─── Sectors view ─────────────────────────────────────────────────────────────
-function buildSectors() {
-  if (!graphData) return;
-  const view = document.getElementById('view-sectors');
-  const byS = {};
-  graphData.nodes.forEach(n => {
-    if (!byS[n.sector]) byS[n.sector] = [];
-    byS[n.sector].push(n);
-  });
+// ─── Sector Bubbles ───────────────────────────────────────────────
+function buildBubbles() {
+  if (!sectorData) return;
+  const wrap = $('bubble-svg-wrap');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  const svgEl = d3.select('#bubble-svg').attr('viewBox', `0 0 ${W} ${H}`);
+  svgEl.selectAll('*').remove();
 
-  Object.entries(byS).sort(([a],[b]) => a.localeCompare(b)).forEach(([sector, nodes]) => {
-    const avgImpact = nodes.reduce((s,n) => s+n.impact, 0) / nodes.length;
-    const card = document.createElement('div');
-    card.className = 'sector-card';
-    card.innerHTML = `
-      <div class="sector-name">${sector}</div>
-      <div class="sector-meta">${nodes.length} companies · avg impact <span style="color:${color(avgImpact)};font-family:var(--font-mono)">${fmtImpact(avgImpact)}</span></div>
-      <div class="sector-companies">
-        ${nodes.map(n => `<span class="sector-company-chip" onclick="switchTab('graph');setTimeout(()=>selectCompany(${n.id}),100)">${n.ticker}</span>`).join('')}
-      </div>
-    `;
-    view.appendChild(card);
+  const entries = Object.entries(sectorData);
+  const maxCap = Math.max(...entries.map(([,v]) => v.total_market_cap));
+  const rScale = d3.scaleSqrt().domain([0, maxCap]).range([30, Math.min(W, H) * 0.22]);
+
+  const nodes = entries.map(([name, v]) => ({
+    name, ...v,
+    r: rScale(v.total_market_cap),
+    x: W/2 + (Math.random()-.5)*200,
+    y: H/2 + (Math.random()-.5)*200,
+  }));
+
+  const sim = d3.forceSimulation(nodes)
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('charge', d3.forceManyBody().strength(5))
+    .force('collision', d3.forceCollide(d => d.r + 4))
+    .stop();
+
+  for (let i=0; i<200; i++) sim.tick();
+
+  const node = svgEl.selectAll('g').data(nodes).enter().append('g')
+    .style('cursor','pointer')
+    .on('click', (e, d) => showSectorDetail(d.name));
+
+  node.append('circle')
+    .attr('cx', d => d.x).attr('cy', d => d.y).attr('r', d => d.r)
+    .attr('fill', d => SECTOR_COLORS[d.name] + '22')
+    .attr('stroke', d => SECTOR_COLORS[d.name])
+    .attr('stroke-width', 2);
+
+  node.append('text').attr('x', d => d.x).attr('y', d => d.y - 8)
+    .attr('text-anchor','middle').attr('font-size', d => Math.max(10, Math.min(14, d.r/4)))
+    .attr('fill', d => SECTOR_COLORS[d.name]).attr('font-weight','700')
+    .text(d => d.name);
+
+  node.append('text').attr('x', d => d.x).attr('y', d => d.y + 10)
+    .attr('text-anchor','middle').attr('font-size', d => Math.max(9, Math.min(12, d.r/5)))
+    .attr('fill','var(--muted)')
+    .text(d => fmtM(d.total_market_cap));
+
+  node.append('text').attr('x', d => d.x).attr('y', d => d.y + 26)
+    .attr('text-anchor','middle').attr('font-size', d => Math.max(9, Math.min(11, d.r/5)))
+    .attr('fill', d => d.avg_impact > 0 ? 'var(--green)' : 'var(--red)')
+    .text(d => fmtPct(d.avg_impact) + ' impact');
+}
+
+function showSectorDetail(sname) {
+  const sd = sectorData[sname];
+  if (!sd) return;
+  const col = SECTOR_COLORS[sname];
+  const det = $('sector-detail');
+  det.innerHTML = `
+    <h3 style="color:${col}">${sname}</h3>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${sd.company_count} companies</div>
+    <div class="sector-stats">
+      ${SS('Total Market Cap', fmtM(sd.total_market_cap))}
+      ${SS('Total Revenue', fmtM(sd.total_revenue))}
+      ${SS('Avg GNN Impact', fmtPct(sd.avg_impact), sd.avg_impact > 0 ? 'var(--green)' : 'var(--red)')}
+      ${SS('Sector Forecast', sd.sector_forecast + '%', 'var(--yellow)')}
+    </div>
+    <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Companies</div>
+    <div class="s-company-list">
+      ${sd.companies.sort((a,b) => b.market_cap_bn - a.market_cap_bn).map(c => `
+        <div class="s-co-row" onclick="switchTab('graph',document.querySelector('.tab-btn'));setTimeout(()=>selectCompany(${c.id}),80)">
+          <span class="ticker-badge">${c.ticker || ''}</span>
+          <div style="flex:1"><div style="font-size:12px;font-weight:600">${c.name}</div>
+          <div style="font-size:10px;color:var(--muted)">${fmtM(c.market_cap_bn)}</div></div>
+          <span class="impact-pill ${impactClass(c.impact)}">${fmtPct(c.impact)}</span>
+        </div>`).join('')}
+    </div>`;
+}
+function SS(label, val, col) {
+  return `<div class="s-stat"><div class="s-stat-label">${label}</div><div class="s-stat-val" style="${col?'color:'+col:''}">${val}</div></div>`;
+}
+
+// ─── Investment Calculator ────────────────────────────────────────
+function populateInvestSectors() {
+  if (!sectorData) return;
+  const sel = $('inv-sector');
+  if (sel.options.length > 1) return;
+  Object.keys(sectorData).sort().forEach(s => {
+    const o = document.createElement('option');
+    o.value = s; o.textContent = s; sel.appendChild(o);
   });
 }
 
-// ─── Boot ─────────────────────────────────────────────────────────────────────
+$('inv-scenario').addEventListener('change', function() {
+  $('inv-custom-group').style.display = this.value === 'custom' ? '' : 'none';
+});
+
+const PRESETS = {
+  ai:     { sector: 'Semiconductors', scenario: 'bull',  years: 5,  amount: 10000 },
+  auto:   { sector: 'Automotive',     scenario: 'base',  years: 7,  amount: 10000 },
+  memory: { sector: 'Semiconductors', scenario: 'forecast', years: 3, amount: 10000 },
+  top5:   { sector: '',               scenario: 'forecast', years: 5, amount: 10000 },
+};
+function loadPreset(key) {
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  const p = PRESETS[key];
+  $('inv-amount').value = p.amount;
+  $('inv-years').value = p.years;
+  $('inv-years-val').textContent = p.years + 'y';
+  $('inv-scenario').value = p.scenario;
+  $('inv-custom-group').style.display = 'none';
+  $('inv-sector').value = p.sector;
+  runCalculator();
+}
+
+function getAnnualGrowth(company, scenario) {
+  const scenarioMap = { bull: 0.30, base: 0.15, bear: -0.10 };
+  if (scenario === 'forecast') return (company.forecast || 10) / 100;
+  if (scenario === 'custom') return parseFloat($('inv-custom-pct').value) / 100;
+  return scenarioMap[scenario] || 0.15;
+}
+
+function runCalculator() {
+  if (!graphData) return;
+  const amount = parseFloat($('inv-amount').value) || 10000;
+  const years  = parseInt($('inv-years').value) || 5;
+  const scenario = $('inv-scenario').value;
+  const sectorFilter = $('inv-sector').value;
+
+  let nodes = graphData.nodes;
+  if (sectorFilter) nodes = nodes.filter(n => n.sector === sectorFilter);
+
+  // Calculate projected returns per company
+  const results = nodes.map(c => {
+    const g = getAnnualGrowth(c, scenario);
+    const finalVal = amount * Math.pow(1 + g, years);
+    const gain = finalVal - amount;
+    const totalReturn = (gain / amount) * 100;
+    return { ...c, annualGrowth: g * 100, finalVal, gain, totalReturn };
+  }).sort((a, b) => b.totalReturn - a.totalReturn);
+
+  const top = results.slice(0, 20);
+  const avgReturn = top.reduce((s, r) => s + r.totalReturn, 0) / top.length;
+  const totalInvested = amount * top.length;
+  const totalFinal = top.reduce((s, r) => s + r.finalVal, 0);
+
+  const out = $('invest-results');
+  out.innerHTML = `
+    <h2>Projected Returns <span style="font-size:10px;color:var(--muted);font-weight:400">— ${scenario} · ${years}y horizon</span></h2>
+    <div class="portfolio-summary">
+      <div class="ps-item"><div class="ps-label">Total Invested</div><div class="ps-val">${fmtDollar(totalInvested)}</div></div>
+      <div class="ps-item"><div class="ps-label">Projected Value</div><div class="ps-val">${fmtDollar(totalFinal)}</div></div>
+      <div class="ps-item"><div class="ps-label">Avg Return</div><div class="ps-val" style="color:${avgReturn>0?'var(--green)':'var(--red)'}">${fmtPct(avgReturn)}</div></div>
+    </div>`;
+
+  top.forEach(r => {
+    const retColor = r.totalReturn > 0 ? 'var(--green)' : 'var(--red)';
+    const sCol = SECTOR_COLORS[r.sector] || 'var(--accent)';
+    const card = document.createElement('div');
+    card.className = 'invest-card';
+    card.innerHTML = `
+      <div class="invest-card-header">
+        <span class="ticker-badge" style="border-color:${sCol};color:${sCol}">${r.ticker}</span>
+        <div class="invest-card-title">${r.name}<br><span style="font-size:10px;color:var(--muted);font-weight:400">${r.sector}</span></div>
+        <div class="invest-return" style="color:${retColor}">${fmtPct(r.totalReturn)}</div>
+      </div>
+      <div class="invest-breakdown">
+        ${IB('Annual Growth', fmtPct(r.annualGrowth), retColor)}
+        ${IB('Invested', fmtDollar(amount))}
+        ${IB('Projected', fmtDollar(r.finalVal), retColor)}
+      </div>
+      <div style="margin-top:8px;font-size:10px;color:var(--muted)">
+        ${r.forecast_specific ? '📌 Company forecast' : '📊 Sector default'} · GNN Impact: <span style="color:${color(r.impact)}">${fmtPct(r.impact)}</span>
+      </div>`;
+    card.onclick = () => { switchTab('graph', document.querySelector('.tab-btn')); setTimeout(() => selectCompany(r.id), 80); };
+    out.appendChild(card);
+  });
+}
+function IB(label, val, col) {
+  return `<div class="inv-b"><div class="inv-b-label">${label}</div><div class="inv-b-val" style="${col?'color:'+col:''}">${val}</div></div>`;
+}
+
+// ─── Boot ────────────────────────────────────────────────────────
 init();
 </script>
 </body>

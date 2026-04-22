@@ -134,25 +134,38 @@ body { background:var(--bg); color:var(--text); font-family:'IBM Plex Sans','Seg
 
 /* ── Investment Calculator ───────────────────────────────────── */
 #view-invest { flex-direction:column; overflow:hidden; }
-#invest-layout { display:grid; grid-template-columns:360px 1fr; height:100%; overflow:hidden; }
-#invest-controls { border-right:1px solid var(--border); padding:18px; overflow-y:auto; background:var(--surface); }
-#invest-controls h2 { font-size:13px; font-weight:700; margin-bottom:14px; }
-#invest-results { padding:18px; overflow-y:auto; }
-#invest-results h2 { font-size:13px; font-weight:700; margin-bottom:12px; }
-.preset-btn { display:inline-block; background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:4px 9px; font-size:11px; cursor:pointer; margin:0 4px 6px 0; transition:all .15s; color:var(--text); }
+#invest-layout { display:grid; grid-template-columns:330px 1fr; height:100%; overflow:hidden; }
+#invest-controls { border-right:1px solid var(--border); padding:14px; overflow-y:auto; background:var(--surface); }
+#invest-controls h2 { font-size:12px; font-weight:700; margin-bottom:10px; }
+.calc-tabs { display:flex; gap:3px; margin-bottom:12px; }
+.calc-tab { flex:1; text-align:center; padding:5px; border:1px solid var(--border); border-radius:4px; cursor:pointer; font-size:10px; font-weight:600; color:var(--muted); background:none; transition:all .15s; }
+.calc-tab.active { border-color:var(--accent); color:var(--accent); background:rgba(91,141,238,.1); }
+#invest-results { padding:14px; overflow-y:auto; }
+#invest-results h2 { font-size:12px; font-weight:700; margin-bottom:10px; }
+.preset-btn { display:inline-block; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:2px 7px; font-size:10px; cursor:pointer; margin:0 3px 5px 0; transition:all .15s; color:var(--text); }
 .preset-btn:hover,.preset-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(91,141,238,.08); }
-.invest-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px 16px; margin-bottom:8px; }
-.invest-card-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-.invest-card-title { font-size:13px; font-weight:700; flex:1; }
-.invest-return { font-family:var(--font-mono); font-size:16px; font-weight:700; }
-.invest-breakdown { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:8px; }
-.inv-b { background:var(--bg); border-radius:5px; padding:6px 8px; }
+.invest-card { background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:11px 13px; margin-bottom:6px; cursor:pointer; transition:border-color .15s; }
+.invest-card:hover { border-color:var(--accent); }
+.invest-card-header { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+.invest-card-title { font-size:12px; font-weight:700; flex:1; }
+.invest-return { font-family:var(--font-mono); font-size:14px; font-weight:700; }
+.invest-breakdown { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; margin-top:6px; }
+.inv-b { background:var(--bg); border-radius:4px; padding:5px 6px; }
 .inv-b-label { font-size:9px; color:var(--muted); text-transform:uppercase; }
-.inv-b-val { font-size:13px; font-weight:700; font-family:var(--font-mono); margin-top:1px; }
-.portfolio-summary { background:rgba(91,141,238,.08); border:1px solid rgba(91,141,238,.25); border-radius:8px; padding:14px 16px; margin-bottom:16px; display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.inv-b-val { font-size:11px; font-weight:700; font-family:var(--font-mono); margin-top:1px; }
+.portfolio-summary { background:rgba(91,141,238,.07); border:1px solid rgba(91,141,238,.2); border-radius:7px; padding:10px 12px; margin-bottom:12px; display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
 .ps-item { text-align:center; }
-.ps-label { font-size:10px; color:var(--muted); }
-.ps-val { font-size:18px; font-weight:700; font-family:var(--font-mono); color:var(--accent); margin-top:2px; }
+.ps-label { font-size:9px; color:var(--muted); }
+.ps-val { font-size:14px; font-weight:700; font-family:var(--font-mono); color:var(--accent); margin-top:1px; }
+.chain-section { background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:11px 13px; margin-bottom:8px; }
+.chain-section h4 { font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
+.chain-co { display:flex; align-items:center; gap:7px; padding:4px 0; border-bottom:1px solid var(--border); }
+.chain-co:last-child { border-bottom:none; }
+.exp-row { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+.exp-label { font-size:11px; min-width:110px; }
+.exp-bar { flex:1; height:5px; background:var(--border); border-radius:3px; overflow:hidden; }
+.exp-fill { height:100%; border-radius:3px; }
+.risk-tag { font-size:9px; font-weight:700; padding:2px 5px; border-radius:3px; margin-left:4px; }
 
 /* ── Loading ────────────────────────────────────────────────────── */
 #loading { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; z-index:999; }
@@ -268,21 +281,25 @@ body { background:var(--bg); color:var(--text); font-family:'IBM Plex Sans','Seg
     <div id="invest-layout">
       <div id="invest-controls">
         <h2>Investment Calculator</h2>
+        <div class="calc-tabs">
+          <button class="calc-tab active" onclick="setCalcMode('standard',this)">Standard</button>
+          <button class="calc-tab" onclick="setCalcMode('detailed',this)">Detailed</button>
+        </div>
         <div class="form-group">
           <label class="form-label">Initial Investment ($)</label>
           <input class="form-input" type="number" id="inv-amount" value="10000" step="1000">
         </div>
         <div class="form-group">
-          <label class="form-label">Time Horizon (years)</label>
+          <label class="form-label">Time Horizon</label>
           <div class="range-wrap">
             <input type="range" id="inv-years" min="1" max="20" value="5"
-                   oninput="document.getElementById('inv-years-val').textContent=this.value+'y'">
+                   oninput="$('inv-years-val').textContent=this.value+'y'">
             <span class="range-val" id="inv-years-val">5y</span>
           </div>
         </div>
         <div class="form-group">
           <label class="form-label">Scenario</label>
-          <select class="form-select" id="inv-scenario">
+          <select class="form-select" id="inv-scenario" onchange="onScenarioChange()">
             <option value="forecast">Use Growth Forecasts</option>
             <option value="bull">Bull Case (+30%)</option>
             <option value="base">Base Case (+15%)</option>
@@ -291,27 +308,39 @@ body { background:var(--bg); color:var(--text); font-family:'IBM Plex Sans','Seg
           </select>
         </div>
         <div class="form-group" id="inv-custom-group" style="display:none">
-          <label class="form-label">Custom Annual Growth %</label>
+          <label class="form-label">Custom Annual Growth</label>
           <div class="range-wrap">
-            <input type="range" id="inv-custom-pct" min="-30" max="100" value="20"
-                   oninput="document.getElementById('inv-custom-val').textContent=this.value+'%'">
+            <input type="range" id="inv-custom-pct" min="-50" max="150" value="20"
+                   oninput="$('inv-custom-val').textContent=this.value+'%'">
             <span class="range-val" id="inv-custom-val">20%</span>
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Filter by Sector</label>
+          <label class="form-label">Filter Mode</label>
+          <select class="form-select" id="inv-filter-mode" onchange="onFilterModeChange()">
+            <option value="all">All Companies</option>
+            <option value="sector">By Sector</option>
+            <option value="company">Single Company</option>
+          </select>
+        </div>
+        <div id="inv-sector-group" style="display:none" class="form-group">
+          <label class="form-label">Sector</label>
           <select class="form-select" id="inv-sector"><option value="">All sectors</option></select>
         </div>
+        <div id="inv-company-group" style="display:none" class="form-group">
+          <label class="form-label">Company</label>
+          <select class="form-select" id="inv-company"></select>
+        </div>
         <div class="form-group">
-          <label class="form-label">Quick Presets</label><br>
-          <button class="preset-btn" onclick="loadPreset('ai')">AI Infrastructure</button>
+          <label class="form-label">Presets</label><br>
+          <button class="preset-btn" onclick="loadPreset('ai')">AI Infra</button>
           <button class="preset-btn" onclick="loadPreset('auto')">EV Transition</button>
           <button class="preset-btn" onclick="loadPreset('memory')">Memory Boom</button>
-          <button class="preset-btn" onclick="loadPreset('top5')">Top 5 Impact</button>
+          <button class="preset-btn" onclick="loadPreset('top5')">Top Impact</button>
         </div>
-        <button class="run-btn" onclick="runCalculator()">📊 Calculate Returns</button>
+        <button class="run-btn" onclick="runCalculator()">📊 Calculate</button>
       </div>
-      <div id="invest-results"><h2>Projected Returns</h2><p style="color:var(--muted);font-size:12px">Configure and calculate to see projections.</p></div>
+      <div id="invest-results"><h2>Projected Returns</h2><p style="color:var(--muted);font-size:12px">Configure and calculate.</p></div>
     </div>
   </div>
 </div>
@@ -333,9 +362,10 @@ const palette = ['#5b8dee','#3ddc84','#ffd166','#ff6b6b','#c084fc','#38bdf8','#f
 const $ = id => document.getElementById(id);
 const fmtM = n => n >= 1000 ? `$${(n/1000).toFixed(1)}T` : `$${n.toFixed(0)}B`;
 const fmtPct = n => (n >= 0 ? '+' : '') + n.toFixed(1) + '%';
+const fmtImpact = n => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';  // impact already in %
 const fmtDollar = n => n >= 1e9 ? `$${(n/1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(0)}M` : `$${n.toFixed(0)}`;
-const impactClass = n => n > 0.3 ? 'impact-pos' : n < -0.3 ? 'impact-neg' : 'impact-neu';
-const color = n => n > 0.3 ? 'var(--green)' : n < -0.3 ? 'var(--red)' : 'var(--muted)';
+const impactClass = n => n > 0.05 ? 'impact-pos' : n < -0.05 ? 'impact-neg' : 'impact-neu';
+const color = n => n > 0.05 ? 'var(--green)' : n < -0.05 ? 'var(--red)' : 'var(--muted)';
 
 // ─── Theme ───────────────────────────────────────────────────────
 function toggleTheme() {
@@ -390,7 +420,7 @@ function buildSidebar(nodes) {
         <div class="company-name">${n.name}</div>
         <div class="company-sector">${n.sector}</div>
       </div>
-      <span class="impact-pill ${impactClass(n.impact)}">${fmtPct(n.impact)}</span>`;
+      <span class="impact-pill ${impactClass(n.impact)}">${fmtImpact(n.impact)}</span>`;
     div.onclick = () => selectCompany(n.id);
     list.appendChild(div);
   });
@@ -456,13 +486,17 @@ function buildGraph(data) {
 
 function redrawNodes() {
   if (!allNodes) return;
+  // impact is in % (e.g. 0.35 = 0.35%), threshold at 0.05%
+  const impactExtent = d3.extent(graphData.nodes, d => d.impact);
+  const absMax = Math.max(Math.abs(impactExtent[0]), Math.abs(impactExtent[1]), 0.01);
+  const iColor = v => {
+    if (v > absMax * 0.1) return ['rgba(61,220,132,.3)', 'var(--green)'];
+    if (v < -absMax * 0.1) return ['rgba(255,107,107,.3)', 'var(--red)'];
+    return ['rgba(107,107,128,.15)', 'var(--muted)'];
+  };
   allNodes.select('circle')
-    .attr('fill', d => colorBy === 'impact'
-      ? (d.impact > 1 ? 'rgba(61,220,132,.25)' : d.impact < -1 ? 'rgba(255,107,107,.25)' : 'rgba(107,107,128,.2)')
-      : SECTOR_COLORS[d.sector] + '28')
-    .attr('stroke', d => colorBy === 'impact'
-      ? (d.impact > 1 ? 'var(--green)' : d.impact < -1 ? 'var(--red)' : 'var(--muted)')
-      : SECTOR_COLORS[d.sector]);
+    .attr('fill', d => colorBy === 'impact' ? iColor(d.impact)[0] : SECTOR_COLORS[d.sector] + '28')
+    .attr('stroke', d => colorBy === 'impact' ? iColor(d.impact)[1] : SECTOR_COLORS[d.sector]);
 }
 
 function resetZoom() {
@@ -501,7 +535,7 @@ async function selectCompany(id) {
       ${M('Debt Ratio', c.debt_ratio.toFixed(2))}
       ${M('R&D %', c.r_and_d_pct.toFixed(1) + '%')}
       ${M('CapEx %', c.capex_pct.toFixed(1) + '%')}
-      ${M('GNN Impact', fmtPct(c.impact), color(c.impact))}
+      ${M('GNN Impact', fmtImpact(c.impact), color(c.impact))}
     </div>
     <div class="supply-grid">
       <div class="supply-col">
@@ -524,7 +558,7 @@ function supItem(s, dir) {
   const pct = Math.round((s.strength || 0) * 100);
   return `<div class="supply-item" onclick="selectCompany(${s.id})">
     <div><div class="supply-item-name">${s.name} <span style="font-family:var(--font-mono);font-size:9px;color:var(--muted)">${s.ticker}</span></div>
-    <div class="supply-item-sub">${s.sector} · ${fmtPct(s.impact)}</div>
+    <div class="supply-item-sub">${s.sector} · ${fmtImpact(s.impact)}</div>
     <div class="str-bar"><div class="str-fill" style="width:${pct}%"></div></div></div>
     <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${pct}%</span>
   </div>`;
@@ -603,57 +637,100 @@ async function runShock() {
   });
 }
 
-// ─── Sector Bubbles ───────────────────────────────────────────────
+// ─── Sector Bubbles ──────────────────────────────────────────────
+let bubbleSim = null;
+
 function buildBubbles() {
   if (!sectorData) return;
   const wrap = $('bubble-svg-wrap');
-  const W = wrap.clientWidth, H = wrap.clientHeight;
-  const svgEl = d3.select('#bubble-svg').attr('viewBox', `0 0 ${W} ${H}`);
+  const W = wrap.clientWidth || 900, H = wrap.clientHeight || 600;
+
+  const svgEl = d3.select('#bubble-svg');
   svgEl.selectAll('*').remove();
+
+  // Zoom + pan like company graph
+  const zoom = d3.zoom().scaleExtent([0.2, 4]).on('zoom', e => bg.attr('transform', e.transform));
+  svgEl.call(zoom);
+  const bg = svgEl.append('g');
 
   const entries = Object.entries(sectorData);
   const maxCap = Math.max(...entries.map(([,v]) => v.total_market_cap));
-  const rScale = d3.scaleSqrt().domain([0, maxCap]).range([30, Math.min(W, H) * 0.22]);
+  const rScale = d3.scaleSqrt().domain([0, maxCap]).range([40, Math.min(W, H) * 0.20]);
 
   const nodes = entries.map(([name, v]) => ({
     name, ...v,
     r: rScale(v.total_market_cap),
-    x: W/2 + (Math.random()-.5)*200,
-    y: H/2 + (Math.random()-.5)*200,
+    x: W/2 + (Math.random()-.5)*100,
+    y: H/2 + (Math.random()-.5)*100,
   }));
 
-  const sim = d3.forceSimulation(nodes)
-    .force('center', d3.forceCenter(W/2, H/2))
-    .force('charge', d3.forceManyBody().strength(5))
-    .force('collision', d3.forceCollide(d => d.r + 4))
-    .stop();
+  // Links between sectors (based on cross-sector edges in graph)
+  const sectorLinks = [];
+  const sectorIndex = {};
+  nodes.forEach((n, i) => sectorIndex[n.name] = i);
+  const seen = new Set();
+  if (graphData) {
+    graphData.edges.forEach(e => {
+      const src = graphData.nodes[e.source]?.sector || graphData.nodes.find(n => n.id === e.source)?.sector;
+      const tgt = graphData.nodes[e.target]?.sector || graphData.nodes.find(n => n.id === e.target)?.sector;
+      if (src && tgt && src !== tgt) {
+        const key = [src, tgt].sort().join('|');
+        if (!seen.has(key)) { seen.add(key); sectorLinks.push({source: sectorIndex[src], target: sectorIndex[tgt]}); }
+      }
+    });
+  }
 
-  for (let i=0; i<200; i++) sim.tick();
+  const link = bg.selectAll('.slink').data(sectorLinks).enter().append('line')
+    .attr('class','slink').attr('stroke','rgba(91,141,238,.12)').attr('stroke-width',1.5);
 
-  const node = svgEl.selectAll('g').data(nodes).enter().append('g')
-    .style('cursor','pointer')
-    .on('click', (e, d) => showSectorDetail(d.name));
+  const node = bg.selectAll('.snode').data(nodes).enter().append('g')
+    .attr('class','snode').style('cursor','pointer')
+    .call(d3.drag()
+      .on('start', (e,d) => { if(!e.active) bubbleSim.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e,d) => { if(!e.active) bubbleSim.alphaTarget(0); d.fx=null; d.fy=null; }))
+    .on('click', (e,d) => { e.stopPropagation(); showSectorDetail(d.name); });
 
   node.append('circle')
-    .attr('cx', d => d.x).attr('cy', d => d.y).attr('r', d => d.r)
-    .attr('fill', d => SECTOR_COLORS[d.name] + '22')
+    .attr('r', d => d.r)
+    .attr('fill', d => SECTOR_COLORS[d.name] + '20')
     .attr('stroke', d => SECTOR_COLORS[d.name])
-    .attr('stroke-width', 2);
+    .attr('stroke-width', 2.5);
 
-  node.append('text').attr('x', d => d.x).attr('y', d => d.y - 8)
-    .attr('text-anchor','middle').attr('font-size', d => Math.max(10, Math.min(14, d.r/4)))
+  node.append('text').attr('dy', d => d.r > 60 ? '-14' : '-6')
+    .attr('text-anchor','middle')
+    .attr('font-size', d => Math.max(10, Math.min(15, d.r/3.5)))
     .attr('fill', d => SECTOR_COLORS[d.name]).attr('font-weight','700')
     .text(d => d.name);
 
-  node.append('text').attr('x', d => d.x).attr('y', d => d.y + 10)
-    .attr('text-anchor','middle').attr('font-size', d => Math.max(9, Math.min(12, d.r/5)))
+  node.append('text').attr('dy', d => d.r > 60 ? '4' : '8')
+    .attr('text-anchor','middle')
+    .attr('font-size', d => Math.max(9, Math.min(12, d.r/4.5)))
     .attr('fill','var(--muted)')
     .text(d => fmtM(d.total_market_cap));
 
-  node.append('text').attr('x', d => d.x).attr('y', d => d.y + 26)
-    .attr('text-anchor','middle').attr('font-size', d => Math.max(9, Math.min(11, d.r/5)))
-    .attr('fill', d => d.avg_impact > 0 ? 'var(--green)' : 'var(--red)')
-    .text(d => fmtPct(d.avg_impact) + ' impact');
+  node.append('text').attr('dy', d => d.r > 60 ? '20' : '22')
+    .attr('text-anchor','middle')
+    .attr('font-size', d => Math.max(8, Math.min(11, d.r/5)))
+    .attr('fill', d => d.avg_impact >= 0 ? 'var(--green)' : 'var(--red)')
+    .text(d => fmtImpact(d.avg_impact) + ' avg');
+
+  node.append('text').attr('dy', d => d.r > 60 ? '35' : '35')
+    .attr('text-anchor','middle')
+    .attr('font-size', d => Math.max(8, Math.min(10, d.r/5.5)))
+    .attr('fill','var(--yellow)')
+    .text(d => d.sector_forecast + '% forecast');
+
+  bubbleSim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(sectorLinks).distance(d => nodes[d.source]?.r + nodes[d.target]?.r + 20).strength(0.1))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('charge', d3.forceManyBody().strength(30))
+    .force('collision', d3.forceCollide(d => d.r + 8))
+    .on('tick', () => {
+      link.attr('x1', d => nodes[d.source]?.x || 0).attr('y1', d => nodes[d.source]?.y || 0)
+          .attr('x2', d => nodes[d.target]?.x || 0).attr('y2', d => nodes[d.target]?.y || 0);
+      node.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
 }
 
 function showSectorDetail(sname) {
@@ -667,7 +744,7 @@ function showSectorDetail(sname) {
     <div class="sector-stats">
       ${SS('Total Market Cap', fmtM(sd.total_market_cap))}
       ${SS('Total Revenue', fmtM(sd.total_revenue))}
-      ${SS('Avg GNN Impact', fmtPct(sd.avg_impact), sd.avg_impact > 0 ? 'var(--green)' : 'var(--red)')}
+      ${SS('Avg GNN Impact', fmtImpact(sd.avg_impact), sd.avg_impact > 0 ? 'var(--green)' : 'var(--red)')}
       ${SS('Sector Forecast', sd.sector_forecast + '%', 'var(--yellow)')}
     </div>
     <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Companies</div>
@@ -677,7 +754,7 @@ function showSectorDetail(sname) {
           <span class="ticker-badge">${c.ticker || ''}</span>
           <div style="flex:1"><div style="font-size:12px;font-weight:600">${c.name}</div>
           <div style="font-size:10px;color:var(--muted)">${fmtM(c.market_cap_bn)}</div></div>
-          <span class="impact-pill ${impactClass(c.impact)}">${fmtPct(c.impact)}</span>
+          <span class="impact-pill ${impactClass(c.impact)}">${fmtImpact(c.impact)}</span>
         </div>`).join('')}
     </div>`;
 }
@@ -686,36 +763,57 @@ function SS(label, val, col) {
 }
 
 // ─── Investment Calculator ────────────────────────────────────────
+let calcMode = 'standard';
+
+function setCalcMode(mode, btn) {
+  calcMode = mode;
+  document.querySelectorAll('.calc-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function onScenarioChange() {
+  $('inv-custom-group').style.display = $('inv-scenario').value === 'custom' ? '' : 'none';
+}
+
+function onFilterModeChange() {
+  const m = $('inv-filter-mode').value;
+  $('inv-sector-group').style.display = m === 'sector' ? '' : 'none';
+  $('inv-company-group').style.display = m === 'company' ? '' : 'none';
+}
+
 function populateInvestSectors() {
-  if (!sectorData) return;
+  if (!sectorData || !graphData) return;
   const sel = $('inv-sector');
   if (sel.options.length > 1) return;
   Object.keys(sectorData).sort().forEach(s => {
     const o = document.createElement('option');
     o.value = s; o.textContent = s; sel.appendChild(o);
   });
+  const csel = $('inv-company');
+  graphData.nodes.sort((a,b) => a.name.localeCompare(b.name)).forEach(n => {
+    const o = document.createElement('option');
+    o.value = n.id; o.textContent = `${n.ticker} — ${n.name}`;
+    csel.appendChild(o);
+  });
 }
 
-$('inv-scenario').addEventListener('change', function() {
-  $('inv-custom-group').style.display = this.value === 'custom' ? '' : 'none';
-});
-
 const PRESETS = {
-  ai:     { sector: 'Semiconductors', scenario: 'bull',  years: 5,  amount: 10000 },
-  auto:   { sector: 'Automotive',     scenario: 'base',  years: 7,  amount: 10000 },
-  memory: { sector: 'Semiconductors', scenario: 'forecast', years: 3, amount: 10000 },
-  top5:   { sector: '',               scenario: 'forecast', years: 5, amount: 10000 },
+  ai:     { filter: 'sector', sector: 'Semiconductors', scenario: 'bull', years: 5, amount: 10000 },
+  auto:   { filter: 'sector', sector: 'Automotive',     scenario: 'base', years: 7, amount: 10000 },
+  memory: { filter: 'sector', sector: 'Semiconductors', scenario: 'forecast', years: 3, amount: 10000 },
+  top5:   { filter: 'all',    sector: '',               scenario: 'forecast', years: 5, amount: 10000 },
 };
 function loadPreset(key) {
   document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
   event.target.classList.add('active');
   const p = PRESETS[key];
   $('inv-amount').value = p.amount;
-  $('inv-years').value = p.years;
-  $('inv-years-val').textContent = p.years + 'y';
+  $('inv-years').value = p.years; $('inv-years-val').textContent = p.years + 'y';
   $('inv-scenario').value = p.scenario;
+  $('inv-filter-mode').value = p.filter;
   $('inv-custom-group').style.display = 'none';
-  $('inv-sector').value = p.sector;
+  onFilterModeChange();
+  if (p.sector) $('inv-sector').value = p.sector;
   runCalculator();
 }
 
@@ -726,17 +824,22 @@ function getAnnualGrowth(company, scenario) {
   return scenarioMap[scenario] || 0.15;
 }
 
-function runCalculator() {
+async function runCalculator() {
   if (!graphData) return;
-  const amount = parseFloat($('inv-amount').value) || 10000;
-  const years  = parseInt($('inv-years').value) || 5;
+  const amount   = parseFloat($('inv-amount').value) || 10000;
+  const years    = parseInt($('inv-years').value) || 5;
   const scenario = $('inv-scenario').value;
-  const sectorFilter = $('inv-sector').value;
+  const filterMode = $('inv-filter-mode').value;
 
   let nodes = graphData.nodes;
-  if (sectorFilter) nodes = nodes.filter(n => n.sector === sectorFilter);
+  if (filterMode === 'sector') {
+    const sf = $('inv-sector').value;
+    if (sf) nodes = nodes.filter(n => n.sector === sf);
+  } else if (filterMode === 'company') {
+    const cid = parseInt($('inv-company').value);
+    nodes = graphData.nodes.filter(n => n.id === cid);
+  }
 
-  // Calculate projected returns per company
   const results = nodes.map(c => {
     const g = getAnnualGrowth(c, scenario);
     const finalVal = amount * Math.pow(1 + g, years);
@@ -745,43 +848,177 @@ function runCalculator() {
     return { ...c, annualGrowth: g * 100, finalVal, gain, totalReturn };
   }).sort((a, b) => b.totalReturn - a.totalReturn);
 
-  const top = results.slice(0, 20);
-  const avgReturn = top.reduce((s, r) => s + r.totalReturn, 0) / top.length;
+  const top = results.slice(0, 25);
+  const avgReturn = top.reduce((s, r) => s + r.totalReturn, 0) / Math.max(top.length, 1);
   const totalInvested = amount * top.length;
   const totalFinal = top.reduce((s, r) => s + r.finalVal, 0);
+  const netGain = totalFinal - totalInvested;
+  const cagr = top.length > 0 ? (Math.pow(totalFinal / totalInvested, 1/years) - 1) * 100 : 0;
 
   const out = $('invest-results');
   out.innerHTML = `
-    <h2>Projected Returns <span style="font-size:10px;color:var(--muted);font-weight:400">— ${scenario} · ${years}y horizon</span></h2>
+    <h2>Projected Returns <span style="font-size:10px;color:var(--muted);font-weight:400">— ${scenario} · ${years}y · ${top.length} companies</span></h2>
     <div class="portfolio-summary">
-      <div class="ps-item"><div class="ps-label">Total Invested</div><div class="ps-val">${fmtDollar(totalInvested)}</div></div>
-      <div class="ps-item"><div class="ps-label">Projected Value</div><div class="ps-val">${fmtDollar(totalFinal)}</div></div>
-      <div class="ps-item"><div class="ps-label">Avg Return</div><div class="ps-val" style="color:${avgReturn>0?'var(--green)':'var(--red)'}">${fmtPct(avgReturn)}</div></div>
+      <div class="ps-item"><div class="ps-label">Invested</div><div class="ps-val">${fmtDollar(totalInvested)}</div></div>
+      <div class="ps-item"><div class="ps-label">Projected</div><div class="ps-val" style="color:${netGain>=0?'var(--green)':'var(--red)'}">${fmtDollar(totalFinal)}</div></div>
+      <div class="ps-item"><div class="ps-label">Net Gain</div><div class="ps-val" style="color:${netGain>=0?'var(--green)':'var(--red)'}">${fmtDollar(netGain)}</div></div>
+      <div class="ps-item"><div class="ps-label">Portfolio CAGR</div><div class="ps-val" style="color:${cagr>=0?'var(--green)':'var(--red)'}">${cagr>=0?'+':''}${cagr.toFixed(1)}%</div></div>
     </div>`;
+
+  // If detailed mode and single company — fetch supply chain stats
+  if (calcMode === 'detailed' && top.length === 1) {
+    await renderDetailedSingle(top[0], amount, years, scenario, out);
+    return;
+  }
 
   top.forEach(r => {
     const retColor = r.totalReturn > 0 ? 'var(--green)' : 'var(--red)';
     const sCol = SECTOR_COLORS[r.sector] || 'var(--accent)';
     const card = document.createElement('div');
     card.className = 'invest-card';
+
+    let extraRows = '';
+    if (calcMode === 'detailed') {
+      extraRows = `
+        <div class="invest-breakdown" style="margin-top:5px">
+          ${IB('Revenue', '$'+r.revenue_bn+'B')}
+          ${IB('Margin', (r.margin||0).toFixed(1)+'%', r.margin>0?'var(--green)':'var(--red)')}
+          ${IB('YoY Gwth', fmtPct(r.yoy_growth||0), r.yoy_growth>0?'var(--green)':'var(--red)')}
+          ${IB('GNN Impact', fmtImpact(r.impact), color(r.impact))}
+        </div>`;
+    }
+
     card.innerHTML = `
       <div class="invest-card-header">
-        <span class="ticker-badge" style="border-color:${sCol};color:${sCol}">${r.ticker}</span>
-        <div class="invest-card-title">${r.name}<br><span style="font-size:10px;color:var(--muted);font-weight:400">${r.sector}</span></div>
+        <span class="ticker-badge" style="color:${sCol}">${r.ticker}</span>
+        <div class="invest-card-title">${r.name}<br><span style="font-size:9px;color:var(--muted);font-weight:400">${r.sector} · ${r.forecast_specific?'📌':'📊'} ${r.forecast}% forecast</span></div>
         <div class="invest-return" style="color:${retColor}">${fmtPct(r.totalReturn)}</div>
       </div>
       <div class="invest-breakdown">
-        ${IB('Annual Growth', fmtPct(r.annualGrowth), retColor)}
+        ${IB('Annual', fmtPct(r.annualGrowth), retColor)}
         ${IB('Invested', fmtDollar(amount))}
-        ${IB('Projected', fmtDollar(r.finalVal), retColor)}
-      </div>
-      <div style="margin-top:8px;font-size:10px;color:var(--muted)">
-        ${r.forecast_specific ? '📌 Company forecast' : '📊 Sector default'} · GNN Impact: <span style="color:${color(r.impact)}">${fmtPct(r.impact)}</span>
-      </div>`;
-    card.onclick = () => { switchTab('graph', document.querySelector('.tab-btn')); setTimeout(() => selectCompany(r.id), 80); };
+        ${IB('Final', fmtDollar(r.finalVal), retColor)}
+        ${IB('Gain', fmtDollar(r.gain), retColor)}
+      </div>${extraRows}`;
+    card.onclick = () => {
+      switchTab('graph', document.querySelectorAll('.tab-btn')[0]);
+      setTimeout(() => selectCompany(r.id), 80);
+    };
     out.appendChild(card);
   });
 }
+
+async function renderDetailedSingle(r, amount, years, scenario, out) {
+  const stats = await fetch(`/api/supply_chain_stats/${r.id}`).then(x => x.json());
+  const retColor = r.totalReturn > 0 ? 'var(--green)' : 'var(--red)';
+  const sCol = SECTOR_COLORS[r.sector] || 'var(--accent)';
+
+  // Main card
+  const card = document.createElement('div');
+  card.className = 'invest-card';
+  card.innerHTML = `
+    <div class="invest-card-header">
+      <span class="ticker-badge" style="color:${sCol}">${r.ticker}</span>
+      <div class="invest-card-title">${r.name}<br><span style="font-size:9px;color:var(--muted)">${r.sector} · ${r.forecast_specific?'📌':'📊'} ${r.forecast}% forecast / ${r.forecast_months}mo</span></div>
+      <div class="invest-return" style="color:${retColor}">${fmtPct(r.totalReturn)}</div>
+    </div>
+    <div class="invest-breakdown">
+      ${IB('Annual Growth', fmtPct(r.annualGrowth), retColor)}
+      ${IB('Invested', fmtDollar(amount))} ${IB('Final Value', fmtDollar(r.finalVal), retColor)}
+      ${IB('Net Gain', fmtDollar(r.gain), retColor)}
+    </div>
+    <div class="invest-breakdown" style="margin-top:5px">
+      ${IB('Revenue', '$'+r.revenue_bn+'B')} ${IB('Margin', (r.margin||0).toFixed(1)+'%', r.margin>0?'var(--green)':'var(--red)')}
+      ${IB('YoY Growth', fmtPct(r.yoy_growth||0), r.yoy_growth>0?'var(--green)':'var(--red)')}
+      ${IB('GNN Impact', fmtImpact(r.impact), color(r.impact))}
+    </div>
+    <div class="invest-breakdown" style="margin-top:5px">
+      ${IB('Market Cap', fmtM(r.market_cap_bn))}
+      ${IB('R&D %', (r.r_and_d_pct||0).toFixed(1)+'%')}
+      ${IB('CapEx %', (r.capex_pct||0).toFixed(1)+'%')}
+      ${IB('Debt Ratio', (r.debt_ratio||0).toFixed(2))}
+    </div>`;
+  out.appendChild(card);
+
+  // Supply chain risk
+  const riskScore = Math.min(10, Math.round((stats.supplier_concentration + stats.customer_concentration) * 2));
+  const riskCol = riskScore > 6 ? 'var(--green)' : riskScore > 3 ? 'var(--yellow)' : 'var(--red)';
+  const riskLabel = riskScore > 6 ? 'Low Risk' : riskScore > 3 ? 'Medium Risk' : 'High Risk';
+
+  const riskDiv = document.createElement('div');
+  riskDiv.className = 'chain-section';
+  riskDiv.innerHTML = `
+    <h4>Supply Chain Risk Assessment</h4>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div style="font-size:28px;font-weight:700;font-family:var(--font-mono);color:${riskCol}">${riskScore}/10</div>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:${riskCol}">${riskLabel}</div>
+        <div style="font-size:10px;color:var(--muted)">Based on supply chain connectivity</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      ${IB('Supplier Links', stats.supplier_concentration.toFixed(2))}
+      ${IB('Customer Links', stats.customer_concentration.toFixed(2))}
+      ${IB('Upstream 2-hop', stats.upstream_2hop.length + ' co.')}
+      ${IB('Downstream 2-hop', stats.downstream_2hop.length + ' co.')}
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--muted)">
+      Chain avg forecast: <strong style="color:var(--yellow)">${stats.chain_avg_forecast}%</strong> ·
+      Chain avg GNN impact: <strong style="color:${stats.chain_avg_impact>=0?'var(--green)':'var(--red)'}">${fmtImpact(stats.chain_avg_impact)}</strong>
+    </div>`;
+  out.appendChild(riskDiv);
+
+  // Sector exposure
+  const expDiv = document.createElement('div');
+  expDiv.className = 'chain-section';
+  const maxExp = Math.max(...Object.values(stats.sector_exposure), 1);
+  expDiv.innerHTML = `<h4>Supply Chain Sector Exposure</h4>` +
+    Object.entries(stats.sector_exposure).map(([s, v]) => {
+      const pct = (v / maxExp * 100).toFixed(0);
+      const sc = SECTOR_COLORS[s] || 'var(--accent)';
+      return `<div class="exp-row">
+        <span class="exp-label" style="font-size:11px">${s}</span>
+        <div class="exp-bar"><div class="exp-fill" style="width:${pct}%;background:${sc}"></div></div>
+        <span style="font-size:10px;color:var(--muted);font-family:var(--font-mono);min-width:50px;text-align:right">${fmtM(v)}</span>
+      </div>`;
+    }).join('');
+  out.appendChild(expDiv);
+
+  // Upstream suppliers
+  if (stats.upstream_2hop.length) {
+    const upDiv = document.createElement('div');
+    upDiv.className = 'chain-section';
+    upDiv.innerHTML = `<h4>↑ Upstream Suppliers (2-hop)</h4>` +
+      stats.upstream_2hop.slice(0, 8).map(c => `
+        <div class="chain-co">
+          <span class="ticker-badge" style="font-size:9px">${c.ticker}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:600">${c.name}</div>
+            <div style="font-size:9px;color:var(--muted)">${c.sector} · ${c.forecast}% forecast</div>
+          </div>
+          <span style="font-family:var(--font-mono);font-size:10px;color:${color(c.impact)}">${fmtImpact(c.impact)}</span>
+        </div>`).join('');
+    out.appendChild(upDiv);
+  }
+
+  // Downstream customers
+  if (stats.downstream_2hop.length) {
+    const dnDiv = document.createElement('div');
+    dnDiv.className = 'chain-section';
+    dnDiv.innerHTML = `<h4>↓ Downstream Customers (2-hop)</h4>` +
+      stats.downstream_2hop.slice(0, 8).map(c => `
+        <div class="chain-co">
+          <span class="ticker-badge" style="font-size:9px">${c.ticker}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:600">${c.name}</div>
+            <div style="font-size:9px;color:var(--muted)">${c.sector} · ${c.forecast}% forecast</div>
+          </div>
+          <span style="font-family:var(--font-mono);font-size:10px;color:${color(c.impact)}">${fmtImpact(c.impact)}</span>
+        </div>`).join('');
+    out.appendChild(dnDiv);
+  }
+}
+
 function IB(label, val, col) {
   return `<div class="inv-b"><div class="inv-b-label">${label}</div><div class="inv-b-val" style="${col?'color:'+col:''}">${val}</div></div>`;
 }

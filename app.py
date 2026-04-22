@@ -244,6 +244,55 @@ def api_search():
     ][:10])
 
 
+
+@app.route("/api/supply_chain_stats/<int:cid>")
+def api_supply_chain_stats(cid):
+    if cid < 0 or cid >= len(companies):
+        return jsonify({"error": "not found"}), 404
+    c = companies[cid]
+    impacts = run_inference()
+
+    def bfs(start_ids, direction, hops=2):
+        visited, frontier, results = set(start_ids), set(start_ids), []
+        for _ in range(hops):
+            nxt = set()
+            for e in edges:
+                if direction == "up" and e.customer_id in frontier and e.supplier_id not in visited:
+                    nxt.add(e.supplier_id); visited.add(e.supplier_id)
+                elif direction == "dn" and e.supplier_id in frontier and e.customer_id not in visited:
+                    nxt.add(e.customer_id); visited.add(e.customer_id)
+            for nid in nxt:
+                if nid < len(companies):
+                    co = companies[nid]; f, m, spec = get_forecast(co)
+                    results.append({"id":co.id,"name":co.name,"ticker":co.ticker,
+                        "sector":co.sector,"revenue_bn":co.revenue_bn,
+                        "market_cap_bn":co.market_cap_bn,"margin":round(co.margin*100,2),
+                        "yoy_growth":round(co.yoy_growth*100,2),
+                        "forecast":round(f*100,1),"forecast_months":m,
+                        "impact":round(impacts[nid]*100,3)})
+            frontier = nxt
+        return results
+
+    up2 = bfs([cid], "up", 2)
+    dn2 = bfs([cid], "dn", 2)
+    all_chain = up2 + dn2
+    sup_str = sum(e.relationship_strength for e in edges if e.customer_id == cid)
+    cus_str = sum(e.relationship_strength for e in edges if e.supplier_id == cid)
+    sec_exp = {}
+    for co in all_chain:
+        sec_exp[co["sector"]] = sec_exp.get(co["sector"], 0) + co["market_cap_bn"]
+
+    return jsonify({
+        "company": company_dict(c, impacts[cid]),
+        "upstream_2hop": up2,
+        "downstream_2hop": dn2,
+        "supplier_concentration": round(sup_str, 3),
+        "customer_concentration": round(cus_str, 3),
+        "sector_exposure": {k: round(v,1) for k,v in sorted(sec_exp.items(), key=lambda x:-x[1])},
+        "chain_avg_forecast": round(sum(co["forecast"] for co in all_chain)/max(len(all_chain),1),1) if all_chain else 0,
+        "chain_avg_impact": round(sum(co["impact"] for co in all_chain)/max(len(all_chain),1),3) if all_chain else 0,
+    })
+
 if __name__ == "__main__":
     load_or_generate_graph()
     load_model()

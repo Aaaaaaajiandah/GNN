@@ -6,6 +6,7 @@
 <title>Supply Chain Intelligence</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js">
 
+
 // ─── Live Data Tab ───────────────────────────────────────────────
 let stockData = [];
 let stockSortKey = 'market_cap_bn';
@@ -330,12 +331,6 @@ async function submitEdit() {
   result.textContent = data.message || data.error;
 }
 
-// Hook into switchTab to load stock data lazily
-const _origSwitchTab = switchTab;
-function switchTab(name, btn) {
-  _origSwitchTab(name, btn);
-  if (name === 'live' && stockData.length === 0) loadStockTab();
-}
 
 </script>
 <style>
@@ -850,6 +845,7 @@ function switchTab(name, btn) {
   if (btn) btn.classList.add('active');
   if (name === 'sectors' && sectorData) buildBubbles();
   if (name === 'invest') populateInvestSectors();
+  if (name === 'live' && stockData.length === 0) loadStockTab();
 }
 
 // ─── Init ────────────────────────────────────────────────────────
@@ -959,12 +955,14 @@ function buildGraph(data) {
 function redrawNodes() {
   if (!allNodes) return;
   // impact is in % (e.g. 0.35 = 0.35%), threshold at 0.05%
-  const impactExtent = d3.extent(graphData.nodes, d => d.impact);
-  const absMax = Math.max(Math.abs(impactExtent[0]), Math.abs(impactExtent[1]), 0.01);
+  // Sort impacts and color by rank: top third green, bottom third red, middle gray
+  const sorted = [...graphData.nodes].map(n => n.impact).sort((a,b) => a-b);
+  const lo = sorted[Math.floor(sorted.length * 0.33)];
+  const hi = sorted[Math.floor(sorted.length * 0.66)];
   const iColor = v => {
-    if (v > absMax * 0.1) return ['rgba(61,220,132,.3)', 'var(--green)'];
-    if (v < -absMax * 0.1) return ['rgba(255,107,107,.3)', 'var(--red)'];
-    return ['rgba(107,107,128,.15)', 'var(--muted)'];
+    if (v >= hi) return ['rgba(61,220,132,.35)', 'var(--green)'];
+    if (v <= lo) return ['rgba(255,107,107,.35)', 'var(--red)'];
+    return ['rgba(255,209,102,.2)', 'var(--yellow)'];  // middle = yellow
   };
   allNodes.select('circle')
     .attr('fill', d => colorBy === 'impact' ? iColor(d.impact)[0] : SECTOR_COLORS[d.sector] + '28')

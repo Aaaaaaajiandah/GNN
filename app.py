@@ -130,7 +130,15 @@ def index():
 @app.route("/api/graph")
 def api_graph():
     impacts = run_inference()
-    nodes = [company_dict(c, impacts[c.id]) for c in companies]
+    cache = load_live_cache()
+    nodes = []
+    for c in companies:
+        d = company_dict(c, impacts[c.id])
+        # Merge live price into graph data so sidebar shows live change%
+        live = cache.get(c.ticker, {})
+        d["price"]      = live.get("price")
+        d["change_pct"] = live.get("change_pct")
+        nodes.append(d)
     edges_out = [{"source": e.supplier_id, "target": e.customer_id,
                   "strength": e.relationship_strength} for e in edges]
     return jsonify({"nodes": nodes, "edges": edges_out})
@@ -312,8 +320,11 @@ def load_live_cache():
 @app.route("/api/stocks")
 def api_stocks():
     """Return live stock data merged with company graph data."""
-    cache = load_live_cache()
-    impacts = run_inference()
+    try:
+        cache = load_live_cache()
+        impacts = run_inference()
+    except Exception as e:
+        return jsonify({"error": str(e), "stocks": [], "cache_count": 0, "last_update": None}), 500
     result = []
     for c in companies:
         live = cache.get(c.ticker, {})

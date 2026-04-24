@@ -14,9 +14,22 @@ let selectedTicker = null;
 let uploadedRows = [];
 
 async function loadStockTab() {
-  const res = await fetch('/api/stocks');
-  const data = await res.json();
-  stockData = data.stocks;
+  let data;
+  try {
+    const res = await fetch('/api/stocks');
+    data = await res.json();
+    if (data.error) {
+      $('stock-tbody').innerHTML = `<tr><td colspan="11" style="padding:20px;color:var(--red);text-align:center">API error: ${data.error}</td></tr>`;
+      return;
+    }
+  } catch(e) {
+    $('stock-tbody').innerHTML = `<tr><td colspan="11" style="padding:20px;color:var(--red);text-align:center">Failed to load: ${e.message}</td></tr>`;
+    return;
+  }
+  stockData = data.stocks || [];
+  if (stockData.length === 0) {
+    $('stock-tbody').innerHTML = `<tr><td colspan="11" style="padding:20px;color:var(--muted);text-align:center">No stock data. Try retraining first, then run data_manager.py update.</td></tr>`;
+  }
 
   // Status badge
   const badge = $('live-status-badge');
@@ -867,13 +880,19 @@ function buildSidebar(nodes) {
     const div = document.createElement('div');
     div.className = 'company-item';
     div.dataset.id = n.id;
+    const hasLivePrice = n.change_pct !== null && n.change_pct !== undefined;
+    const pillVal = hasLivePrice ? n.change_pct : n.impact;
+    const pillTxt = hasLivePrice
+      ? (n.change_pct >= 0 ? "+" : "") + n.change_pct.toFixed(2) + "%"
+      : fmtImpact(n.impact);
+    const pillCls = pillVal > 0 ? "impact-pos" : pillVal < 0 ? "impact-neg" : "impact-neu";
     div.innerHTML = `
       <span class="ticker-badge">${n.ticker}</span>
       <div class="company-info">
         <div class="company-name">${n.name}</div>
-        <div class="company-sector">${n.sector}</div>
+        <div class="company-sector">${n.sector}${hasLivePrice ? ' · <span style="font-size:9px;color:var(--muted)">live</span>' : ''}</div>
       </div>
-      <span class="impact-pill ${impactClass(n.impact)}">${fmtImpact(n.impact)}</span>`;
+      <span class="impact-pill ${pillCls}">${pillTxt}</span>`;
     div.onclick = () => selectCompany(n.id);
     list.appendChild(div);
   });

@@ -298,8 +298,8 @@ import csv, io, tempfile, shutil
 from werkzeug.utils import secure_filename
 
 LIVE_CACHE_FILE = "data/live_cache.json"
-COMPANIES_CSV   = "companies.csv"
-EDGES_CSV       = "edges.csv"
+COMPANIES_CSV   = "data/examples/companies.csv"
+EDGES_CSV       = "data/examples/edges.csv"
 
 
 def load_live_cache():

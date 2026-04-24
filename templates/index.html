@@ -7,6 +7,696 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js">
 
 
+<script>
+// ─── State ───────────────────────────────────────────────────────
+let graphData = null;
+let simulation = null;
+let svg, g, allNodes, allLinks;
+let showLabels = true;
+let colorBy = 'sector';
+let activeId = null;
+let sectorData = null;
+
+const SECTOR_COLORS = {};
+const palette = ['#5b8dee','#3ddc84','#ffd166','#ff6b6b','#c084fc','#38bdf8','#fb923c','#f472b6','#a3e635','#2dd4bf'];
+
+// ─── Util ────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const fmtM = n => n >= 1000 ? `$${(n/1000).toFixed(1)}T` : `$${n.toFixed(0)}B`;
+const fmtPct = n => (n >= 0 ? '+' : '') + n.toFixed(1) + '%';
+const fmtImpact = n => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';  // impact already in %
+const fmtDollar = n => n >= 1e9 ? `$${(n/1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(0)}M` : `$${n.toFixed(0)}`;
+const impactClass = n => n > 0.05 ? 'impact-pos' : n < -0.05 ? 'impact-neg' : 'impact-neu';
+const color = n => n > 0.05 ? 'var(--green)' : n < -0.05 ? 'var(--red)' : 'var(--muted)';
+
+// ─── Theme ───────────────────────────────────────────────────────
+function toggleTheme() {
+  const h = document.documentElement;
+  const isDark = h.getAttribute('data-theme') === 'dark';
+  h.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  $('theme-btn').textContent = isDark ? '🌙' : '☀️';
+  if (svg) svg.select('#graph-svg-bg').attr('fill', isDark ? '#f4f4f8' : '#09090f');
+}
+
+// ─── Tabs ────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  $(`view-${name}`).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'sectors' && sectorData) buildBubbles();
+  if (name === 'invest') populateInvestSectors();
+  if (name === 'live' && stockData.length === 0) loadStockTab();
+}
+
+// ─── Init ────────────────────────────────────────────────────────
+async function init() {
+  const [graph, sectors] = await Promise.all([
+    fetch('/api/graph').then(r => r.json()),
+    fetch('/api/sectors').then(r => r.json()),
+  ]);
+  graphData = graph;
+  sectorData = sectors;
+
+  // Build sector color map
+  const sectorNames = [...new Set(graph.nodes.map(n => n.sector))];
+  sectorNames.forEach((s, i) => SECTOR_COLORS[s] = palette[i % palette.length]);
+
+  $('loading').style.display = 'none';
+  buildSidebar(graph.nodes);
+  buildGraph(graph);
+  populateShockSelects(sectors);
+  populateInvestSectors();
+}
+
+// ─── Sidebar ─────────────────────────────────────────────────────
+function buildSidebar(nodes) {
+  const list = $('company-list');
+  list.innerHTML = '';
+  nodes.forEach(n => {
+    const div = document.createElement('div');
+    div.className = 'company-item';
+    div.dataset.id = n.id;
+    const hasLivePrice = n.change_pct !== null && n.change_pct !== undefined;
+    const pillVal = hasLivePrice ? n.change_pct : n.impact;
+    const pillTxt = hasLivePrice
+      ? (n.change_pct >= 0 ? "+" : "") + n.change_pct.toFixed(2) + "%"
+      : fmtImpact(n.impact);
+    const pillCls = pillVal > 0 ? "impact-pos" : pillVal < 0 ? "impact-neg" : "impact-neu";
+    div.innerHTML = `
+      <span class="ticker-badge">${n.ticker}</span>
+      <div class="company-info">
+        <div class="company-name">${n.name}</div>
+        <div class="company-sector">${n.sector}${hasLivePrice ? ' · <span style="font-size:9px;color:var(--muted)">live</span>' : ''}</div>
+      </div>
+      <span class="impact-pill ${pillCls}">${pillTxt}</span>`;
+    div.onclick = () => selectCompany(n.id);
+    list.appendChild(div);
+  });
+}
+
+$('search-box').addEventListener('input', function() {
+  const q = this.value.toLowerCase();
+  document.querySelectorAll('.company-item').forEach(el => {
+    el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+
+// ─── Graph ───────────────────────────────────────────────────────
+function buildGraph(data) {
+  const wrap = $('view-graph');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+
+  svg = d3.select('#graph-svg');
+  const zoom = d3.zoom().scaleExtent([.08, 5]).on('zoom', e => g.attr('transform', e.transform));
+  svg.call(zoom);
+  g = svg.append('g');
+
+  const impactScale = d3.scaleLinear()
+    .domain([d3.min(data.nodes, n => n.impact), d3.max(data.nodes, n => n.impact)])
+    .range([7, 22]);
+
+  allLinks = g.selectAll('.link')
+    .data(data.edges).enter().append('line')
+    .attr('class', 'link')
+    .attr('stroke', 'rgba(91,141,238,.2)')
+    .style('opacity', d => .1 + d.strength * .7);
+
+  allNodes = g.selectAll('.node')
+    .data(data.nodes).enter().append('g').attr('class', 'node')
+    .call(d3.drag()
+      .on('start', (e,d) => { if(!e.active) simulation.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e,d) => { if(!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; }))
+    .on('click', (e,d) => { e.stopPropagation(); selectCompany(d.id); });
+
+  allNodes.append('circle')
+    .attr('r', d => impactScale(d.impact))
+    .attr('fill', d => SECTOR_COLORS[d.sector] + '28')
+    .attr('stroke', d => SECTOR_COLORS[d.sector]);
+
+  allNodes.append('text').text(d => d.ticker).attr('dy','0.35em').attr('text-anchor','middle');
+
+  window._impactScale = impactScale;
+
+  simulation = d3.forceSimulation(data.nodes)
+    .force('link', d3.forceLink(data.edges).id(d => d.id).distance(70).strength(.25))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide(d => impactScale(d.impact) + 5))
+    .on('tick', () => {
+      allLinks.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+              .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      allNodes.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+
+  svg.on('click', closeDetail);
+}
+
+function redrawNodes() {
+  if (!allNodes) return;
+  // impact is in % (e.g. 0.35 = 0.35%), threshold at 0.05%
+  // Sort impacts and color by rank: top third green, bottom third red, middle gray
+  const sorted = [...graphData.nodes].map(n => n.impact).sort((a,b) => a-b);
+  const lo = sorted[Math.floor(sorted.length * 0.33)];
+  const hi = sorted[Math.floor(sorted.length * 0.66)];
+  const iColor = v => {
+    if (v >= hi) return ['rgba(61,220,132,.35)', 'var(--green)'];
+    if (v <= lo) return ['rgba(255,107,107,.35)', 'var(--red)'];
+    return ['rgba(255,209,102,.2)', 'var(--yellow)'];  // middle = yellow
+  };
+  allNodes.select('circle')
+    .attr('fill', d => colorBy === 'impact' ? iColor(d.impact)[0] : SECTOR_COLORS[d.sector] + '28')
+    .attr('stroke', d => colorBy === 'impact' ? iColor(d.impact)[1] : SECTOR_COLORS[d.sector]);
+}
+
+function resetZoom() {
+  d3.select('#graph-svg').transition().duration(500).call(d3.zoom().transform, d3.zoomIdentity);
+}
+function toggleLabels() {
+  showLabels = !showLabels;
+  if (allNodes) allNodes.select('text').style('display', showLabels ? null : 'none');
+}
+
+// ─── Detail panel ────────────────────────────────────────────────
+async function selectCompany(id) {
+  activeId = id;
+  document.querySelectorAll('.company-item').forEach(el => el.classList.toggle('active', +el.dataset.id === id));
+  const c = await fetch(`/api/company/${id}`).then(r => r.json());
+  const panel = $('detail-panel');
+  const inner = $('detail-inner');
+
+  const forecastLabel = c.forecast_specific
+    ? `Company forecast: <strong style="color:var(--green)">${c.forecast}%</strong> over ${c.forecast_months}mo`
+    : `Sector default: <strong style="color:var(--yellow)">${c.forecast}%</strong> over ${c.forecast_months}mo`;
+
+  inner.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">${c.name} <span style="font-family:var(--font-mono);font-size:13px;color:var(--muted)">(${c.ticker})</span></div>
+        <div class="detail-subtitle">${c.sector} · ${forecastLabel}</div>
+      </div>
+      <button class="close-btn" onclick="closeDetail()">×</button>
+    </div>
+    <div class="metrics-grid">
+      ${M('Revenue', '$' + c.revenue_bn + 'B')}
+      ${M('Margin', c.margin.toFixed(1) + '%', c.margin > 0 ? 'var(--green)' : 'var(--red)')}
+      ${M('YoY Growth', fmtPct(c.yoy_growth), c.yoy_growth > 0 ? 'var(--green)' : 'var(--red)')}
+      ${M('Market Cap', fmtM(c.market_cap_bn))}
+      ${M('Debt Ratio', c.debt_ratio.toFixed(2))}
+      ${M('R&D %', c.r_and_d_pct.toFixed(1) + '%')}
+      ${M('CapEx %', c.capex_pct.toFixed(1) + '%')}
+      ${M('GNN Impact', fmtImpact(c.impact), color(c.impact))}
+    </div>
+    <div class="supply-grid">
+      <div class="supply-col">
+        <h3>↑ Upstream Suppliers <span class="up-label">SUPPLIERS</span></h3>
+        ${c.suppliers.length ? c.suppliers.map(s => supItem(s, 'up')).join('') : '<p style="color:var(--muted);font-size:11px">No upstream suppliers</p>'}
+      </div>
+      <div class="supply-col">
+        <h3>↓ Downstream Customers <span class="dn-label">CUSTOMERS</span></h3>
+        ${c.customers.length ? c.customers.map(s => supItem(s, 'dn')).join('') : '<p style="color:var(--muted);font-size:11px">No downstream customers</p>'}
+      </div>
+    </div>`;
+
+  panel.classList.add('open');
+}
+
+function M(label, val, col) {
+  return `<div class="metric-card"><div class="metric-label">${label}</div><div class="metric-value" style="${col?'color:'+col:''}">${val}</div></div>`;
+}
+function supItem(s, dir) {
+  const pct = Math.round((s.strength || 0) * 100);
+  return `<div class="supply-item" onclick="selectCompany(${s.id})">
+    <div><div class="supply-item-name">${s.name} <span style="font-family:var(--font-mono);font-size:9px;color:var(--muted)">${s.ticker}</span></div>
+    <div class="supply-item-sub">${s.sector} · ${fmtImpact(s.impact)}</div>
+    <div class="str-bar"><div class="str-fill" style="width:${pct}%"></div></div></div>
+    <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${pct}%</span>
+  </div>`;
+}
+function closeDetail() {
+  $('detail-panel').classList.remove('open');
+  document.querySelectorAll('.company-item').forEach(el => el.classList.remove('active'));
+  activeId = null;
+}
+
+// ─── Shock ───────────────────────────────────────────────────────
+function populateShockSelects(sectors) {
+  const sel = $('shock-sector');
+  Object.keys(sectors).sort().forEach(s => {
+    const o = document.createElement('option');
+    o.value = s; o.textContent = s;
+    sel.appendChild(o);
+  });
+  const csel = $('shock-company');
+  graphData.nodes.forEach(n => {
+    const o = document.createElement('option');
+    o.value = n.id; o.textContent = `${n.ticker} — ${n.name}`;
+    csel.appendChild(o);
+  });
+}
+function updateShockMode() {
+  const m = $('shock-mode').value;
+  $('shock-sector-group').style.display = m === 'sector' ? '' : 'none';
+  $('shock-company-group').style.display = m === 'company' ? '' : 'none';
+}
+
+async function runShock() {
+  const growth = parseFloat($('shock-range').value);
+  const mode = $('shock-mode').value;
+  const body = { sector_growth: growth };
+  if (mode === 'sector') {
+    body.sector = $('shock-sector').value || undefined;
+  } else {
+    body.shocks = { [$('shock-company').value]: growth };
+  }
+
+  const data = await fetch('/api/shock', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  }).then(r => r.json());
+
+  const out = $('shock-results');
+  const maxD = Math.max(...data.results.map(r => Math.abs(r.delta)), 0.001);
+
+  const relColors = { direct:'var(--accent)', upstream:'var(--yellow)', downstream:'var(--green)', indirect:'var(--muted)' };
+  const relLabels = { direct:'⚡ Direct', upstream:'↑ Supplier', downstream:'↓ Customer', indirect:'~ Indirect' };
+
+  out.innerHTML = `<h2>Impact Results <span style="font-size:10px;color:var(--muted);font-weight:400">— ${data.results.length} companies · sorted by |Δ|</span></h2>`;
+
+  data.results.forEach(r => {
+    const pct = Math.abs(r.delta) / maxD * 100;
+    const barColor = r.delta > 0 ? 'var(--green)' : r.delta < 0 ? 'var(--red)' : 'var(--muted)';
+    const rc = relColors[r.relation] || 'var(--muted)';
+    const rl = relLabels[r.relation] || r.relation;
+    const div = document.createElement('div');
+    div.className = 'result-row';
+    div.innerHTML = `
+      <span class="ticker-badge">${r.ticker}</span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+          <span style="font-size:12px;font-weight:600">${r.name}</span>
+          <span class="rel-badge" style="color:${rc};background:${rc}18">${rl}</span>
+        </div>
+        <div style="font-size:10px;color:var(--muted)">${r.sector}</div>
+        <div class="result-bar-wrap" style="margin-top:4px">
+          <div class="result-bar"><div class="result-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+        </div>
+      </div>
+      <div class="delta-val" style="color:${barColor}">${r.delta >= 0 ? '+' : ''}${r.delta.toFixed(2)}%</div>`;
+    div.onclick = () => { switchTab('graph', document.querySelector('.tab-btn')); setTimeout(() => selectCompany(r.id), 80); };
+    out.appendChild(div);
+  });
+}
+
+// ─── Sector Bubbles ──────────────────────────────────────────────
+let bubbleSim = null;
+
+function buildBubbles() {
+  if (!sectorData) return;
+  const wrap = $('bubble-svg-wrap');
+  const W = wrap.clientWidth || 900, H = wrap.clientHeight || 600;
+
+  const svgEl = d3.select('#bubble-svg');
+  svgEl.selectAll('*').remove();
+
+  // Zoom + pan like company graph
+  const zoom = d3.zoom().scaleExtent([0.2, 4]).on('zoom', e => bg.attr('transform', e.transform));
+  svgEl.call(zoom);
+  const bg = svgEl.append('g');
+
+  const entries = Object.entries(sectorData);
+  const maxCap = Math.max(...entries.map(([,v]) => v.total_market_cap));
+  const rScale = d3.scaleSqrt().domain([0, maxCap]).range([40, Math.min(W, H) * 0.20]);
+
+  const nodes = entries.map(([name, v]) => ({
+    name, ...v,
+    r: rScale(v.total_market_cap),
+    x: W/2 + (Math.random()-.5)*100,
+    y: H/2 + (Math.random()-.5)*100,
+  }));
+
+  // Links between sectors (based on cross-sector edges in graph)
+  const sectorLinks = [];
+  const sectorIndex = {};
+  nodes.forEach((n, i) => sectorIndex[n.name] = i);
+  const seen = new Set();
+  if (graphData) {
+    graphData.edges.forEach(e => {
+      const src = graphData.nodes[e.source]?.sector || graphData.nodes.find(n => n.id === e.source)?.sector;
+      const tgt = graphData.nodes[e.target]?.sector || graphData.nodes.find(n => n.id === e.target)?.sector;
+      if (src && tgt && src !== tgt) {
+        const key = [src, tgt].sort().join('|');
+        if (!seen.has(key)) { seen.add(key); sectorLinks.push({source: sectorIndex[src], target: sectorIndex[tgt]}); }
+      }
+    });
+  }
+
+  const link = bg.selectAll('.slink').data(sectorLinks).enter().append('line')
+    .attr('class','slink').attr('stroke','rgba(91,141,238,.12)').attr('stroke-width',1.5);
+
+  const node = bg.selectAll('.snode').data(nodes).enter().append('g')
+    .attr('class','snode').style('cursor','pointer')
+    .call(d3.drag()
+      .on('start', (e,d) => { if(!e.active) bubbleSim.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e,d) => { if(!e.active) bubbleSim.alphaTarget(0); d.fx=null; d.fy=null; }))
+    .on('click', (e,d) => { e.stopPropagation(); showSectorDetail(d.name); });
+
+  node.append('circle')
+    .attr('r', d => d.r)
+    .attr('fill', d => SECTOR_COLORS[d.name] + '20')
+    .attr('stroke', d => SECTOR_COLORS[d.name])
+    .attr('stroke-width', 2.5);
+
+  node.append('text').attr('dy', d => d.r > 60 ? '-14' : '-6')
+    .attr('text-anchor','middle')
+    .attr('font-size', d => Math.max(10, Math.min(15, d.r/3.5)))
+    .attr('fill', d => SECTOR_COLORS[d.name]).attr('font-weight','700')
+    .text(d => d.name);
+
+  node.append('text').attr('dy', d => d.r > 60 ? '4' : '8')
+    .attr('text-anchor','middle')
+    .attr('font-size', d => Math.max(9, Math.min(12, d.r/4.5)))
+    .attr('fill','var(--muted)')
+    .text(d => fmtM(d.total_market_cap));
+
+  node.append('text').attr('dy', d => d.r > 60 ? '20' : '22')
+    .attr('text-anchor','middle')
+    .attr('font-size', d => Math.max(8, Math.min(11, d.r/5)))
+    .attr('fill', d => d.avg_impact >= 0 ? 'var(--green)' : 'var(--red)')
+    .text(d => fmtImpact(d.avg_impact) + ' avg');
+
+  node.append('text').attr('dy', d => d.r > 60 ? '35' : '35')
+    .attr('text-anchor','middle')
+    .attr('font-size', d => Math.max(8, Math.min(10, d.r/5.5)))
+    .attr('fill','var(--yellow)')
+    .text(d => d.sector_forecast + '% forecast');
+
+  bubbleSim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(sectorLinks).distance(d => nodes[d.source]?.r + nodes[d.target]?.r + 20).strength(0.1))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('charge', d3.forceManyBody().strength(30))
+    .force('collision', d3.forceCollide(d => d.r + 8))
+    .on('tick', () => {
+      link.attr('x1', d => nodes[d.source]?.x || 0).attr('y1', d => nodes[d.source]?.y || 0)
+          .attr('x2', d => nodes[d.target]?.x || 0).attr('y2', d => nodes[d.target]?.y || 0);
+      node.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+}
+
+function showSectorDetail(sname) {
+  const sd = sectorData[sname];
+  if (!sd) return;
+  const col = SECTOR_COLORS[sname];
+  const det = $('sector-detail');
+  det.innerHTML = `
+    <h3 style="color:${col}">${sname}</h3>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${sd.company_count} companies</div>
+    <div class="sector-stats">
+      ${SS('Total Market Cap', fmtM(sd.total_market_cap))}
+      ${SS('Total Revenue', fmtM(sd.total_revenue))}
+      ${SS('Avg GNN Impact', fmtImpact(sd.avg_impact), sd.avg_impact > 0 ? 'var(--green)' : 'var(--red)')}
+      ${SS('Sector Forecast', sd.sector_forecast + '%', 'var(--yellow)')}
+    </div>
+    <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Companies</div>
+    <div class="s-company-list">
+      ${sd.companies.sort((a,b) => b.market_cap_bn - a.market_cap_bn).map(c => `
+        <div class="s-co-row" onclick="switchTab('graph',document.querySelector('.tab-btn'));setTimeout(()=>selectCompany(${c.id}),80)">
+          <span class="ticker-badge">${c.ticker || ''}</span>
+          <div style="flex:1"><div style="font-size:12px;font-weight:600">${c.name}</div>
+          <div style="font-size:10px;color:var(--muted)">${fmtM(c.market_cap_bn)}</div></div>
+          <span class="impact-pill ${impactClass(c.impact)}">${fmtImpact(c.impact)}</span>
+        </div>`).join('')}
+    </div>`;
+}
+function SS(label, val, col) {
+  return `<div class="s-stat"><div class="s-stat-label">${label}</div><div class="s-stat-val" style="${col?'color:'+col:''}">${val}</div></div>`;
+}
+
+// ─── Investment Calculator ────────────────────────────────────────
+let calcMode = 'standard';
+
+function setCalcMode(mode, btn) {
+  calcMode = mode;
+  document.querySelectorAll('.calc-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function onScenarioChange() {
+  $('inv-custom-group').style.display = $('inv-scenario').value === 'custom' ? '' : 'none';
+}
+
+function onFilterModeChange() {
+  const m = $('inv-filter-mode').value;
+  $('inv-sector-group').style.display = m === 'sector' ? '' : 'none';
+  $('inv-company-group').style.display = m === 'company' ? '' : 'none';
+}
+
+function populateInvestSectors() {
+  if (!sectorData || !graphData) return;
+  const sel = $('inv-sector');
+  if (sel.options.length > 1) return;
+  Object.keys(sectorData).sort().forEach(s => {
+    const o = document.createElement('option');
+    o.value = s; o.textContent = s; sel.appendChild(o);
+  });
+  const csel = $('inv-company');
+  graphData.nodes.sort((a,b) => a.name.localeCompare(b.name)).forEach(n => {
+    const o = document.createElement('option');
+    o.value = n.id; o.textContent = `${n.ticker} — ${n.name}`;
+    csel.appendChild(o);
+  });
+}
+
+const PRESETS = {
+  ai:     { filter: 'sector', sector: 'Semiconductors', scenario: 'bull', years: 5, amount: 10000 },
+  auto:   { filter: 'sector', sector: 'Automotive',     scenario: 'base', years: 7, amount: 10000 },
+  memory: { filter: 'sector', sector: 'Semiconductors', scenario: 'forecast', years: 3, amount: 10000 },
+  top5:   { filter: 'all',    sector: '',               scenario: 'forecast', years: 5, amount: 10000 },
+};
+function loadPreset(key) {
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  const p = PRESETS[key];
+  $('inv-amount').value = p.amount;
+  $('inv-years').value = p.years; $('inv-years-val').textContent = p.years + 'y';
+  $('inv-scenario').value = p.scenario;
+  $('inv-filter-mode').value = p.filter;
+  $('inv-custom-group').style.display = 'none';
+  onFilterModeChange();
+  if (p.sector) $('inv-sector').value = p.sector;
+  runCalculator();
+}
+
+function getAnnualGrowth(company, scenario) {
+  const scenarioMap = { bull: 0.30, base: 0.15, bear: -0.10 };
+  if (scenario === 'forecast') return (company.forecast || 10) / 100;
+  if (scenario === 'custom') return parseFloat($('inv-custom-pct').value) / 100;
+  return scenarioMap[scenario] || 0.15;
+}
+
+async function runCalculator() {
+  if (!graphData) return;
+  const amount   = parseFloat($('inv-amount').value) || 10000;
+  const years    = parseInt($('inv-years').value) || 5;
+  const scenario = $('inv-scenario').value;
+  const filterMode = $('inv-filter-mode').value;
+
+  let nodes = graphData.nodes;
+  if (filterMode === 'sector') {
+    const sf = $('inv-sector').value;
+    if (sf) nodes = nodes.filter(n => n.sector === sf);
+  } else if (filterMode === 'company') {
+    const cid = parseInt($('inv-company').value);
+    nodes = graphData.nodes.filter(n => n.id === cid);
+  }
+
+  const results = nodes.map(c => {
+    const g = getAnnualGrowth(c, scenario);
+    const finalVal = amount * Math.pow(1 + g, years);
+    const gain = finalVal - amount;
+    const totalReturn = (gain / amount) * 100;
+    return { ...c, annualGrowth: g * 100, finalVal, gain, totalReturn };
+  }).sort((a, b) => b.totalReturn - a.totalReturn);
+
+  const top = results.slice(0, 25);
+  const avgReturn = top.reduce((s, r) => s + r.totalReturn, 0) / Math.max(top.length, 1);
+  const totalInvested = amount * top.length;
+  const totalFinal = top.reduce((s, r) => s + r.finalVal, 0);
+  const netGain = totalFinal - totalInvested;
+  const cagr = top.length > 0 ? (Math.pow(totalFinal / totalInvested, 1/years) - 1) * 100 : 0;
+
+  const out = $('invest-results');
+  out.innerHTML = `
+    <h2>Projected Returns <span style="font-size:10px;color:var(--muted);font-weight:400">— ${scenario} · ${years}y · ${top.length} companies</span></h2>
+    <div class="portfolio-summary">
+      <div class="ps-item"><div class="ps-label">Invested</div><div class="ps-val">${fmtDollar(totalInvested)}</div></div>
+      <div class="ps-item"><div class="ps-label">Projected</div><div class="ps-val" style="color:${netGain>=0?'var(--green)':'var(--red)'}">${fmtDollar(totalFinal)}</div></div>
+      <div class="ps-item"><div class="ps-label">Net Gain</div><div class="ps-val" style="color:${netGain>=0?'var(--green)':'var(--red)'}">${fmtDollar(netGain)}</div></div>
+      <div class="ps-item"><div class="ps-label">Portfolio CAGR</div><div class="ps-val" style="color:${cagr>=0?'var(--green)':'var(--red)'}">${cagr>=0?'+':''}${cagr.toFixed(1)}%</div></div>
+    </div>`;
+
+  // If detailed mode and single company — fetch supply chain stats
+  if (calcMode === 'detailed' && top.length === 1) {
+    await renderDetailedSingle(top[0], amount, years, scenario, out);
+    return;
+  }
+
+  top.forEach(r => {
+    const retColor = r.totalReturn > 0 ? 'var(--green)' : 'var(--red)';
+    const sCol = SECTOR_COLORS[r.sector] || 'var(--accent)';
+    const card = document.createElement('div');
+    card.className = 'invest-card';
+
+    let extraRows = '';
+    if (calcMode === 'detailed') {
+      extraRows = `
+        <div class="invest-breakdown" style="margin-top:5px">
+          ${IB('Revenue', '$'+r.revenue_bn+'B')}
+          ${IB('Margin', (r.margin||0).toFixed(1)+'%', r.margin>0?'var(--green)':'var(--red)')}
+          ${IB('YoY Gwth', fmtPct(r.yoy_growth||0), r.yoy_growth>0?'var(--green)':'var(--red)')}
+          ${IB('GNN Impact', fmtImpact(r.impact), color(r.impact))}
+        </div>`;
+    }
+
+    card.innerHTML = `
+      <div class="invest-card-header">
+        <span class="ticker-badge" style="color:${sCol}">${r.ticker}</span>
+        <div class="invest-card-title">${r.name}<br><span style="font-size:9px;color:var(--muted);font-weight:400">${r.sector} · ${r.forecast_specific?'📌':'📊'} ${r.forecast}% forecast</span></div>
+        <div class="invest-return" style="color:${retColor}">${fmtPct(r.totalReturn)}</div>
+      </div>
+      <div class="invest-breakdown">
+        ${IB('Annual', fmtPct(r.annualGrowth), retColor)}
+        ${IB('Invested', fmtDollar(amount))}
+        ${IB('Final', fmtDollar(r.finalVal), retColor)}
+        ${IB('Gain', fmtDollar(r.gain), retColor)}
+      </div>${extraRows}`;
+    card.onclick = () => {
+      switchTab('graph', document.querySelectorAll('.tab-btn')[0]);
+      setTimeout(() => selectCompany(r.id), 80);
+    };
+    out.appendChild(card);
+  });
+}
+
+async function renderDetailedSingle(r, amount, years, scenario, out) {
+  const stats = await fetch(`/api/supply_chain_stats/${r.id}`).then(x => x.json());
+  const retColor = r.totalReturn > 0 ? 'var(--green)' : 'var(--red)';
+  const sCol = SECTOR_COLORS[r.sector] || 'var(--accent)';
+
+  // Main card
+  const card = document.createElement('div');
+  card.className = 'invest-card';
+  card.innerHTML = `
+    <div class="invest-card-header">
+      <span class="ticker-badge" style="color:${sCol}">${r.ticker}</span>
+      <div class="invest-card-title">${r.name}<br><span style="font-size:9px;color:var(--muted)">${r.sector} · ${r.forecast_specific?'📌':'📊'} ${r.forecast}% forecast / ${r.forecast_months}mo</span></div>
+      <div class="invest-return" style="color:${retColor}">${fmtPct(r.totalReturn)}</div>
+    </div>
+    <div class="invest-breakdown">
+      ${IB('Annual Growth', fmtPct(r.annualGrowth), retColor)}
+      ${IB('Invested', fmtDollar(amount))} ${IB('Final Value', fmtDollar(r.finalVal), retColor)}
+      ${IB('Net Gain', fmtDollar(r.gain), retColor)}
+    </div>
+    <div class="invest-breakdown" style="margin-top:5px">
+      ${IB('Revenue', '$'+r.revenue_bn+'B')} ${IB('Margin', (r.margin||0).toFixed(1)+'%', r.margin>0?'var(--green)':'var(--red)')}
+      ${IB('YoY Growth', fmtPct(r.yoy_growth||0), r.yoy_growth>0?'var(--green)':'var(--red)')}
+      ${IB('GNN Impact', fmtImpact(r.impact), color(r.impact))}
+    </div>
+    <div class="invest-breakdown" style="margin-top:5px">
+      ${IB('Market Cap', fmtM(r.market_cap_bn))}
+      ${IB('R&D %', (r.r_and_d_pct||0).toFixed(1)+'%')}
+      ${IB('CapEx %', (r.capex_pct||0).toFixed(1)+'%')}
+      ${IB('Debt Ratio', (r.debt_ratio||0).toFixed(2))}
+    </div>`;
+  out.appendChild(card);
+
+  // Supply chain risk
+  const riskScore = Math.min(10, Math.round((stats.supplier_concentration + stats.customer_concentration) * 2));
+  const riskCol = riskScore > 6 ? 'var(--green)' : riskScore > 3 ? 'var(--yellow)' : 'var(--red)';
+  const riskLabel = riskScore > 6 ? 'Low Risk' : riskScore > 3 ? 'Medium Risk' : 'High Risk';
+
+  const riskDiv = document.createElement('div');
+  riskDiv.className = 'chain-section';
+  riskDiv.innerHTML = `
+    <h4>Supply Chain Risk Assessment</h4>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div style="font-size:28px;font-weight:700;font-family:var(--font-mono);color:${riskCol}">${riskScore}/10</div>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:${riskCol}">${riskLabel}</div>
+        <div style="font-size:10px;color:var(--muted)">Based on supply chain connectivity</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      ${IB('Supplier Links', stats.supplier_concentration.toFixed(2))}
+      ${IB('Customer Links', stats.customer_concentration.toFixed(2))}
+      ${IB('Upstream 2-hop', stats.upstream_2hop.length + ' co.')}
+      ${IB('Downstream 2-hop', stats.downstream_2hop.length + ' co.')}
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--muted)">
+      Chain avg forecast: <strong style="color:var(--yellow)">${stats.chain_avg_forecast}%</strong> ·
+      Chain avg GNN impact: <strong style="color:${stats.chain_avg_impact>=0?'var(--green)':'var(--red)'}">${fmtImpact(stats.chain_avg_impact)}</strong>
+    </div>`;
+  out.appendChild(riskDiv);
+
+  // Sector exposure
+  const expDiv = document.createElement('div');
+  expDiv.className = 'chain-section';
+  const maxExp = Math.max(...Object.values(stats.sector_exposure), 1);
+  expDiv.innerHTML = `<h4>Supply Chain Sector Exposure</h4>` +
+    Object.entries(stats.sector_exposure).map(([s, v]) => {
+      const pct = (v / maxExp * 100).toFixed(0);
+      const sc = SECTOR_COLORS[s] || 'var(--accent)';
+      return `<div class="exp-row">
+        <span class="exp-label" style="font-size:11px">${s}</span>
+        <div class="exp-bar"><div class="exp-fill" style="width:${pct}%;background:${sc}"></div></div>
+        <span style="font-size:10px;color:var(--muted);font-family:var(--font-mono);min-width:50px;text-align:right">${fmtM(v)}</span>
+      </div>`;
+    }).join('');
+  out.appendChild(expDiv);
+
+  // Upstream suppliers
+  if (stats.upstream_2hop.length) {
+    const upDiv = document.createElement('div');
+    upDiv.className = 'chain-section';
+    upDiv.innerHTML = `<h4>↑ Upstream Suppliers (2-hop)</h4>` +
+      stats.upstream_2hop.slice(0, 8).map(c => `
+        <div class="chain-co">
+          <span class="ticker-badge" style="font-size:9px">${c.ticker}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:600">${c.name}</div>
+            <div style="font-size:9px;color:var(--muted)">${c.sector} · ${c.forecast}% forecast</div>
+          </div>
+          <span style="font-family:var(--font-mono);font-size:10px;color:${color(c.impact)}">${fmtImpact(c.impact)}</span>
+        </div>`).join('');
+    out.appendChild(upDiv);
+  }
+
+  // Downstream customers
+  if (stats.downstream_2hop.length) {
+    const dnDiv = document.createElement('div');
+    dnDiv.className = 'chain-section';
+    dnDiv.innerHTML = `<h4>↓ Downstream Customers (2-hop)</h4>` +
+      stats.downstream_2hop.slice(0, 8).map(c => `
+        <div class="chain-co">
+          <span class="ticker-badge" style="font-size:9px">${c.ticker}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:600">${c.name}</div>
+            <div style="font-size:9px;color:var(--muted)">${c.sector} · ${c.forecast}% forecast</div>
+          </div>
+          <span style="font-family:var(--font-mono);font-size:10px;color:${color(c.impact)}">${fmtImpact(c.impact)}</span>
+        </div>`).join('');
+    out.appendChild(dnDiv);
+  }
+}
+
+function IB(label, val, col) {
+  return `<div class="inv-b"><div class="inv-b-label">${label}</div><div class="inv-b-val" style="${col?'color:'+col:''}">${val}</div></div>`;
+}
+
+// ─── Boot ────────────────────────────────────────────────────────
+init();
+
 // ─── Live Data Tab ───────────────────────────────────────────────
 let stockData = [];
 let stockSortKey = 'market_cap_bn';
@@ -807,694 +1497,806 @@ body { background:var(--bg); color:var(--text); font-family:'IBM Plex Sans','Seg
 </div>
 
 <script>
-// ─── State ───────────────────────────────────────────────────────
-let graphData = null;
-let simulation = null;
-let svg, g, allNodes, allLinks;
-let showLabels = true;
-let colorBy = 'sector';
-let activeId = null;
-let sectorData = null;
 
-const SECTOR_COLORS = {};
-const palette = ['#5b8dee','#3ddc84','#ffd166','#ff6b6b','#c084fc','#38bdf8','#fb923c','#f472b6','#a3e635','#2dd4bf'];
+// ─── Live Data Tab ───────────────────────────────────────────────
+let stockData = [];
+let stockSortKey = 'market_cap_bn';
+let stockSortAsc = false;
+let selectedTicker = null;
+let uploadedRows = [];
 
-// ─── Util ────────────────────────────────────────────────────────
-const $ = id => document.getElementById(id);
-const fmtM = n => n >= 1000 ? `$${(n/1000).toFixed(1)}T` : `$${n.toFixed(0)}B`;
-const fmtPct = n => (n >= 0 ? '+' : '') + n.toFixed(1) + '%';
-const fmtImpact = n => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';  // impact already in %
-const fmtDollar = n => n >= 1e9 ? `$${(n/1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(0)}M` : `$${n.toFixed(0)}`;
-const impactClass = n => n > 0.05 ? 'impact-pos' : n < -0.05 ? 'impact-neg' : 'impact-neu';
-const color = n => n > 0.05 ? 'var(--green)' : n < -0.05 ? 'var(--red)' : 'var(--muted)';
-
-// ─── Theme ───────────────────────────────────────────────────────
-function toggleTheme() {
-  const h = document.documentElement;
-  const isDark = h.getAttribute('data-theme') === 'dark';
-  h.setAttribute('data-theme', isDark ? 'light' : 'dark');
-  $('theme-btn').textContent = isDark ? '🌙' : '☀️';
-  if (svg) svg.select('#graph-svg-bg').attr('fill', isDark ? '#f4f4f8' : '#09090f');
-}
-
-// ─── Tabs ────────────────────────────────────────────────────────
-function switchTab(name, btn) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  $(`view-${name}`).classList.add('active');
-  if (btn) btn.classList.add('active');
-  if (name === 'sectors' && sectorData) buildBubbles();
-  if (name === 'invest') populateInvestSectors();
-  if (name === 'live' && stockData.length === 0) loadStockTab();
-}
-
-// ─── Init ────────────────────────────────────────────────────────
-async function init() {
-  const [graph, sectors] = await Promise.all([
-    fetch('/api/graph').then(r => r.json()),
-    fetch('/api/sectors').then(r => r.json()),
-  ]);
-  graphData = graph;
-  sectorData = sectors;
-
-  // Build sector color map
-  const sectorNames = [...new Set(graph.nodes.map(n => n.sector))];
-  sectorNames.forEach((s, i) => SECTOR_COLORS[s] = palette[i % palette.length]);
-
-  $('loading').style.display = 'none';
-  buildSidebar(graph.nodes);
-  buildGraph(graph);
-  populateShockSelects(sectors);
-  populateInvestSectors();
-}
-
-// ─── Sidebar ─────────────────────────────────────────────────────
-function buildSidebar(nodes) {
-  const list = $('company-list');
-  list.innerHTML = '';
-  nodes.forEach(n => {
-    const div = document.createElement('div');
-    div.className = 'company-item';
-    div.dataset.id = n.id;
-    const hasLivePrice = n.change_pct !== null && n.change_pct !== undefined;
-    const pillVal = hasLivePrice ? n.change_pct : n.impact;
-    const pillTxt = hasLivePrice
-      ? (n.change_pct >= 0 ? "+" : "") + n.change_pct.toFixed(2) + "%"
-      : fmtImpact(n.impact);
-    const pillCls = pillVal > 0 ? "impact-pos" : pillVal < 0 ? "impact-neg" : "impact-neu";
-    div.innerHTML = `
-      <span class="ticker-badge">${n.ticker}</span>
-      <div class="company-info">
-        <div class="company-name">${n.name}</div>
-        <div class="company-sector">${n.sector}${hasLivePrice ? ' · <span style="font-size:9px;color:var(--muted)">live</span>' : ''}</div>
-      </div>
-      <span class="impact-pill ${pillCls}">${pillTxt}</span>`;
-    div.onclick = () => selectCompany(n.id);
-    list.appendChild(div);
-  });
-}
-
-$('search-box').addEventListener('input', function() {
-  const q = this.value.toLowerCase();
-  document.querySelectorAll('.company-item').forEach(el => {
-    el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
-});
-
-// ─── Graph ───────────────────────────────────────────────────────
-function buildGraph(data) {
-  const wrap = $('view-graph');
-  const W = wrap.clientWidth, H = wrap.clientHeight;
-
-  svg = d3.select('#graph-svg');
-  const zoom = d3.zoom().scaleExtent([.08, 5]).on('zoom', e => g.attr('transform', e.transform));
-  svg.call(zoom);
-  g = svg.append('g');
-
-  const impactScale = d3.scaleLinear()
-    .domain([d3.min(data.nodes, n => n.impact), d3.max(data.nodes, n => n.impact)])
-    .range([7, 22]);
-
-  allLinks = g.selectAll('.link')
-    .data(data.edges).enter().append('line')
-    .attr('class', 'link')
-    .attr('stroke', 'rgba(91,141,238,.2)')
-    .style('opacity', d => .1 + d.strength * .7);
-
-  allNodes = g.selectAll('.node')
-    .data(data.nodes).enter().append('g').attr('class', 'node')
-    .call(d3.drag()
-      .on('start', (e,d) => { if(!e.active) simulation.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
-      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
-      .on('end',   (e,d) => { if(!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; }))
-    .on('click', (e,d) => { e.stopPropagation(); selectCompany(d.id); });
-
-  allNodes.append('circle')
-    .attr('r', d => impactScale(d.impact))
-    .attr('fill', d => SECTOR_COLORS[d.sector] + '28')
-    .attr('stroke', d => SECTOR_COLORS[d.sector]);
-
-  allNodes.append('text').text(d => d.ticker).attr('dy','0.35em').attr('text-anchor','middle');
-
-  window._impactScale = impactScale;
-
-  simulation = d3.forceSimulation(data.nodes)
-    .force('link', d3.forceLink(data.edges).id(d => d.id).distance(70).strength(.25))
-    .force('charge', d3.forceManyBody().strength(-200))
-    .force('center', d3.forceCenter(W/2, H/2))
-    .force('collision', d3.forceCollide(d => impactScale(d.impact) + 5))
-    .on('tick', () => {
-      allLinks.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-              .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-      allNodes.attr('transform', d => `translate(${d.x},${d.y})`);
-    });
-
-  svg.on('click', closeDetail);
-}
-
-function redrawNodes() {
-  if (!allNodes) return;
-  // impact is in % (e.g. 0.35 = 0.35%), threshold at 0.05%
-  // Sort impacts and color by rank: top third green, bottom third red, middle gray
-  const sorted = [...graphData.nodes].map(n => n.impact).sort((a,b) => a-b);
-  const lo = sorted[Math.floor(sorted.length * 0.33)];
-  const hi = sorted[Math.floor(sorted.length * 0.66)];
-  const iColor = v => {
-    if (v >= hi) return ['rgba(61,220,132,.35)', 'var(--green)'];
-    if (v <= lo) return ['rgba(255,107,107,.35)', 'var(--red)'];
-    return ['rgba(255,209,102,.2)', 'var(--yellow)'];  // middle = yellow
-  };
-  allNodes.select('circle')
-    .attr('fill', d => colorBy === 'impact' ? iColor(d.impact)[0] : SECTOR_COLORS[d.sector] + '28')
-    .attr('stroke', d => colorBy === 'impact' ? iColor(d.impact)[1] : SECTOR_COLORS[d.sector]);
-}
-
-function resetZoom() {
-  d3.select('#graph-svg').transition().duration(500).call(d3.zoom().transform, d3.zoomIdentity);
-}
-function toggleLabels() {
-  showLabels = !showLabels;
-  if (allNodes) allNodes.select('text').style('display', showLabels ? null : 'none');
-}
-
-// ─── Detail panel ────────────────────────────────────────────────
-async function selectCompany(id) {
-  activeId = id;
-  document.querySelectorAll('.company-item').forEach(el => el.classList.toggle('active', +el.dataset.id === id));
-  const c = await fetch(`/api/company/${id}`).then(r => r.json());
-  const panel = $('detail-panel');
-  const inner = $('detail-inner');
-
-  const forecastLabel = c.forecast_specific
-    ? `Company forecast: <strong style="color:var(--green)">${c.forecast}%</strong> over ${c.forecast_months}mo`
-    : `Sector default: <strong style="color:var(--yellow)">${c.forecast}%</strong> over ${c.forecast_months}mo`;
-
-  inner.innerHTML = `
-    <div class="detail-header">
-      <div>
-        <div class="detail-title">${c.name} <span style="font-family:var(--font-mono);font-size:13px;color:var(--muted)">(${c.ticker})</span></div>
-        <div class="detail-subtitle">${c.sector} · ${forecastLabel}</div>
-      </div>
-      <button class="close-btn" onclick="closeDetail()">×</button>
-    </div>
-    <div class="metrics-grid">
-      ${M('Revenue', '$' + c.revenue_bn + 'B')}
-      ${M('Margin', c.margin.toFixed(1) + '%', c.margin > 0 ? 'var(--green)' : 'var(--red)')}
-      ${M('YoY Growth', fmtPct(c.yoy_growth), c.yoy_growth > 0 ? 'var(--green)' : 'var(--red)')}
-      ${M('Market Cap', fmtM(c.market_cap_bn))}
-      ${M('Debt Ratio', c.debt_ratio.toFixed(2))}
-      ${M('R&D %', c.r_and_d_pct.toFixed(1) + '%')}
-      ${M('CapEx %', c.capex_pct.toFixed(1) + '%')}
-      ${M('GNN Impact', fmtImpact(c.impact), color(c.impact))}
-    </div>
-    <div class="supply-grid">
-      <div class="supply-col">
-        <h3>↑ Upstream Suppliers <span class="up-label">SUPPLIERS</span></h3>
-        ${c.suppliers.length ? c.suppliers.map(s => supItem(s, 'up')).join('') : '<p style="color:var(--muted);font-size:11px">No upstream suppliers</p>'}
-      </div>
-      <div class="supply-col">
-        <h3>↓ Downstream Customers <span class="dn-label">CUSTOMERS</span></h3>
-        ${c.customers.length ? c.customers.map(s => supItem(s, 'dn')).join('') : '<p style="color:var(--muted);font-size:11px">No downstream customers</p>'}
-      </div>
-    </div>`;
-
-  panel.classList.add('open');
-}
-
-function M(label, val, col) {
-  return `<div class="metric-card"><div class="metric-label">${label}</div><div class="metric-value" style="${col?'color:'+col:''}">${val}</div></div>`;
-}
-function supItem(s, dir) {
-  const pct = Math.round((s.strength || 0) * 100);
-  return `<div class="supply-item" onclick="selectCompany(${s.id})">
-    <div><div class="supply-item-name">${s.name} <span style="font-family:var(--font-mono);font-size:9px;color:var(--muted)">${s.ticker}</span></div>
-    <div class="supply-item-sub">${s.sector} · ${fmtImpact(s.impact)}</div>
-    <div class="str-bar"><div class="str-fill" style="width:${pct}%"></div></div></div>
-    <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${pct}%</span>
-  </div>`;
-}
-function closeDetail() {
-  $('detail-panel').classList.remove('open');
-  document.querySelectorAll('.company-item').forEach(el => el.classList.remove('active'));
-  activeId = null;
-}
-
-// ─── Shock ───────────────────────────────────────────────────────
-function populateShockSelects(sectors) {
-  const sel = $('shock-sector');
-  Object.keys(sectors).sort().forEach(s => {
-    const o = document.createElement('option');
-    o.value = s; o.textContent = s;
-    sel.appendChild(o);
-  });
-  const csel = $('shock-company');
-  graphData.nodes.forEach(n => {
-    const o = document.createElement('option');
-    o.value = n.id; o.textContent = `${n.ticker} — ${n.name}`;
-    csel.appendChild(o);
-  });
-}
-function updateShockMode() {
-  const m = $('shock-mode').value;
-  $('shock-sector-group').style.display = m === 'sector' ? '' : 'none';
-  $('shock-company-group').style.display = m === 'company' ? '' : 'none';
-}
-
-async function runShock() {
-  const growth = parseFloat($('shock-range').value);
-  const mode = $('shock-mode').value;
-  const body = { sector_growth: growth };
-  if (mode === 'sector') {
-    body.sector = $('shock-sector').value || undefined;
-  } else {
-    body.shocks = { [$('shock-company').value]: growth };
-  }
-
-  const data = await fetch('/api/shock', {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
-  }).then(r => r.json());
-
-  const out = $('shock-results');
-  const maxD = Math.max(...data.results.map(r => Math.abs(r.delta)), 0.001);
-
-  const relColors = { direct:'var(--accent)', upstream:'var(--yellow)', downstream:'var(--green)', indirect:'var(--muted)' };
-  const relLabels = { direct:'⚡ Direct', upstream:'↑ Supplier', downstream:'↓ Customer', indirect:'~ Indirect' };
-
-  out.innerHTML = `<h2>Impact Results <span style="font-size:10px;color:var(--muted);font-weight:400">— ${data.results.length} companies · sorted by |Δ|</span></h2>`;
-
-  data.results.forEach(r => {
-    const pct = Math.abs(r.delta) / maxD * 100;
-    const barColor = r.delta > 0 ? 'var(--green)' : r.delta < 0 ? 'var(--red)' : 'var(--muted)';
-    const rc = relColors[r.relation] || 'var(--muted)';
-    const rl = relLabels[r.relation] || r.relation;
-    const div = document.createElement('div');
-    div.className = 'result-row';
-    div.innerHTML = `
-      <span class="ticker-badge">${r.ticker}</span>
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
-          <span style="font-size:12px;font-weight:600">${r.name}</span>
-          <span class="rel-badge" style="color:${rc};background:${rc}18">${rl}</span>
-        </div>
-        <div style="font-size:10px;color:var(--muted)">${r.sector}</div>
-        <div class="result-bar-wrap" style="margin-top:4px">
-          <div class="result-bar"><div class="result-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
-        </div>
-      </div>
-      <div class="delta-val" style="color:${barColor}">${r.delta >= 0 ? '+' : ''}${r.delta.toFixed(2)}%</div>`;
-    div.onclick = () => { switchTab('graph', document.querySelector('.tab-btn')); setTimeout(() => selectCompany(r.id), 80); };
-    out.appendChild(div);
-  });
-}
-
-// ─── Sector Bubbles ──────────────────────────────────────────────
-let bubbleSim = null;
-
-function buildBubbles() {
-  if (!sectorData) return;
-  const wrap = $('bubble-svg-wrap');
-  const W = wrap.clientWidth || 900, H = wrap.clientHeight || 600;
-
-  const svgEl = d3.select('#bubble-svg');
-  svgEl.selectAll('*').remove();
-
-  // Zoom + pan like company graph
-  const zoom = d3.zoom().scaleExtent([0.2, 4]).on('zoom', e => bg.attr('transform', e.transform));
-  svgEl.call(zoom);
-  const bg = svgEl.append('g');
-
-  const entries = Object.entries(sectorData);
-  const maxCap = Math.max(...entries.map(([,v]) => v.total_market_cap));
-  const rScale = d3.scaleSqrt().domain([0, maxCap]).range([40, Math.min(W, H) * 0.20]);
-
-  const nodes = entries.map(([name, v]) => ({
-    name, ...v,
-    r: rScale(v.total_market_cap),
-    x: W/2 + (Math.random()-.5)*100,
-    y: H/2 + (Math.random()-.5)*100,
-  }));
-
-  // Links between sectors (based on cross-sector edges in graph)
-  const sectorLinks = [];
-  const sectorIndex = {};
-  nodes.forEach((n, i) => sectorIndex[n.name] = i);
-  const seen = new Set();
-  if (graphData) {
-    graphData.edges.forEach(e => {
-      const src = graphData.nodes[e.source]?.sector || graphData.nodes.find(n => n.id === e.source)?.sector;
-      const tgt = graphData.nodes[e.target]?.sector || graphData.nodes.find(n => n.id === e.target)?.sector;
-      if (src && tgt && src !== tgt) {
-        const key = [src, tgt].sort().join('|');
-        if (!seen.has(key)) { seen.add(key); sectorLinks.push({source: sectorIndex[src], target: sectorIndex[tgt]}); }
-      }
-    });
-  }
-
-  const link = bg.selectAll('.slink').data(sectorLinks).enter().append('line')
-    .attr('class','slink').attr('stroke','rgba(91,141,238,.12)').attr('stroke-width',1.5);
-
-  const node = bg.selectAll('.snode').data(nodes).enter().append('g')
-    .attr('class','snode').style('cursor','pointer')
-    .call(d3.drag()
-      .on('start', (e,d) => { if(!e.active) bubbleSim.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
-      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
-      .on('end',   (e,d) => { if(!e.active) bubbleSim.alphaTarget(0); d.fx=null; d.fy=null; }))
-    .on('click', (e,d) => { e.stopPropagation(); showSectorDetail(d.name); });
-
-  node.append('circle')
-    .attr('r', d => d.r)
-    .attr('fill', d => SECTOR_COLORS[d.name] + '20')
-    .attr('stroke', d => SECTOR_COLORS[d.name])
-    .attr('stroke-width', 2.5);
-
-  node.append('text').attr('dy', d => d.r > 60 ? '-14' : '-6')
-    .attr('text-anchor','middle')
-    .attr('font-size', d => Math.max(10, Math.min(15, d.r/3.5)))
-    .attr('fill', d => SECTOR_COLORS[d.name]).attr('font-weight','700')
-    .text(d => d.name);
-
-  node.append('text').attr('dy', d => d.r > 60 ? '4' : '8')
-    .attr('text-anchor','middle')
-    .attr('font-size', d => Math.max(9, Math.min(12, d.r/4.5)))
-    .attr('fill','var(--muted)')
-    .text(d => fmtM(d.total_market_cap));
-
-  node.append('text').attr('dy', d => d.r > 60 ? '20' : '22')
-    .attr('text-anchor','middle')
-    .attr('font-size', d => Math.max(8, Math.min(11, d.r/5)))
-    .attr('fill', d => d.avg_impact >= 0 ? 'var(--green)' : 'var(--red)')
-    .text(d => fmtImpact(d.avg_impact) + ' avg');
-
-  node.append('text').attr('dy', d => d.r > 60 ? '35' : '35')
-    .attr('text-anchor','middle')
-    .attr('font-size', d => Math.max(8, Math.min(10, d.r/5.5)))
-    .attr('fill','var(--yellow)')
-    .text(d => d.sector_forecast + '% forecast');
-
-  bubbleSim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(sectorLinks).distance(d => nodes[d.source]?.r + nodes[d.target]?.r + 20).strength(0.1))
-    .force('center', d3.forceCenter(W/2, H/2))
-    .force('charge', d3.forceManyBody().strength(30))
-    .force('collision', d3.forceCollide(d => d.r + 8))
-    .on('tick', () => {
-      link.attr('x1', d => nodes[d.source]?.x || 0).attr('y1', d => nodes[d.source]?.y || 0)
-          .attr('x2', d => nodes[d.target]?.x || 0).attr('y2', d => nodes[d.target]?.y || 0);
-      node.attr('transform', d => `translate(${d.x},${d.y})`);
-    });
-}
-
-function showSectorDetail(sname) {
-  const sd = sectorData[sname];
-  if (!sd) return;
-  const col = SECTOR_COLORS[sname];
-  const det = $('sector-detail');
-  det.innerHTML = `
-    <h3 style="color:${col}">${sname}</h3>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${sd.company_count} companies</div>
-    <div class="sector-stats">
-      ${SS('Total Market Cap', fmtM(sd.total_market_cap))}
-      ${SS('Total Revenue', fmtM(sd.total_revenue))}
-      ${SS('Avg GNN Impact', fmtImpact(sd.avg_impact), sd.avg_impact > 0 ? 'var(--green)' : 'var(--red)')}
-      ${SS('Sector Forecast', sd.sector_forecast + '%', 'var(--yellow)')}
-    </div>
-    <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Companies</div>
-    <div class="s-company-list">
-      ${sd.companies.sort((a,b) => b.market_cap_bn - a.market_cap_bn).map(c => `
-        <div class="s-co-row" onclick="switchTab('graph',document.querySelector('.tab-btn'));setTimeout(()=>selectCompany(${c.id}),80)">
-          <span class="ticker-badge">${c.ticker || ''}</span>
-          <div style="flex:1"><div style="font-size:12px;font-weight:600">${c.name}</div>
-          <div style="font-size:10px;color:var(--muted)">${fmtM(c.market_cap_bn)}</div></div>
-          <span class="impact-pill ${impactClass(c.impact)}">${fmtImpact(c.impact)}</span>
-        </div>`).join('')}
-    </div>`;
-}
-function SS(label, val, col) {
-  return `<div class="s-stat"><div class="s-stat-label">${label}</div><div class="s-stat-val" style="${col?'color:'+col:''}">${val}</div></div>`;
-}
-
-// ─── Investment Calculator ────────────────────────────────────────
-let calcMode = 'standard';
-
-function setCalcMode(mode, btn) {
-  calcMode = mode;
-  document.querySelectorAll('.calc-tab').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-}
-
-function onScenarioChange() {
-  $('inv-custom-group').style.display = $('inv-scenario').value === 'custom' ? '' : 'none';
-}
-
-function onFilterModeChange() {
-  const m = $('inv-filter-mode').value;
-  $('inv-sector-group').style.display = m === 'sector' ? '' : 'none';
-  $('inv-company-group').style.display = m === 'company' ? '' : 'none';
-}
-
-function populateInvestSectors() {
-  if (!sectorData || !graphData) return;
-  const sel = $('inv-sector');
-  if (sel.options.length > 1) return;
-  Object.keys(sectorData).sort().forEach(s => {
-    const o = document.createElement('option');
-    o.value = s; o.textContent = s; sel.appendChild(o);
-  });
-  const csel = $('inv-company');
-  graphData.nodes.sort((a,b) => a.name.localeCompare(b.name)).forEach(n => {
-    const o = document.createElement('option');
-    o.value = n.id; o.textContent = `${n.ticker} — ${n.name}`;
-    csel.appendChild(o);
-  });
-}
-
-const PRESETS = {
-  ai:     { filter: 'sector', sector: 'Semiconductors', scenario: 'bull', years: 5, amount: 10000 },
-  auto:   { filter: 'sector', sector: 'Automotive',     scenario: 'base', years: 7, amount: 10000 },
-  memory: { filter: 'sector', sector: 'Semiconductors', scenario: 'forecast', years: 3, amount: 10000 },
-  top5:   { filter: 'all',    sector: '',               scenario: 'forecast', years: 5, amount: 10000 },
-};
-function loadPreset(key) {
-  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
-  const p = PRESETS[key];
-  $('inv-amount').value = p.amount;
-  $('inv-years').value = p.years; $('inv-years-val').textContent = p.years + 'y';
-  $('inv-scenario').value = p.scenario;
-  $('inv-filter-mode').value = p.filter;
-  $('inv-custom-group').style.display = 'none';
-  onFilterModeChange();
-  if (p.sector) $('inv-sector').value = p.sector;
-  runCalculator();
-}
-
-function getAnnualGrowth(company, scenario) {
-  const scenarioMap = { bull: 0.30, base: 0.15, bear: -0.10 };
-  if (scenario === 'forecast') return (company.forecast || 10) / 100;
-  if (scenario === 'custom') return parseFloat($('inv-custom-pct').value) / 100;
-  return scenarioMap[scenario] || 0.15;
-}
-
-async function runCalculator() {
-  if (!graphData) return;
-  const amount   = parseFloat($('inv-amount').value) || 10000;
-  const years    = parseInt($('inv-years').value) || 5;
-  const scenario = $('inv-scenario').value;
-  const filterMode = $('inv-filter-mode').value;
-
-  let nodes = graphData.nodes;
-  if (filterMode === 'sector') {
-    const sf = $('inv-sector').value;
-    if (sf) nodes = nodes.filter(n => n.sector === sf);
-  } else if (filterMode === 'company') {
-    const cid = parseInt($('inv-company').value);
-    nodes = graphData.nodes.filter(n => n.id === cid);
-  }
-
-  const results = nodes.map(c => {
-    const g = getAnnualGrowth(c, scenario);
-    const finalVal = amount * Math.pow(1 + g, years);
-    const gain = finalVal - amount;
-    const totalReturn = (gain / amount) * 100;
-    return { ...c, annualGrowth: g * 100, finalVal, gain, totalReturn };
-  }).sort((a, b) => b.totalReturn - a.totalReturn);
-
-  const top = results.slice(0, 25);
-  const avgReturn = top.reduce((s, r) => s + r.totalReturn, 0) / Math.max(top.length, 1);
-  const totalInvested = amount * top.length;
-  const totalFinal = top.reduce((s, r) => s + r.finalVal, 0);
-  const netGain = totalFinal - totalInvested;
-  const cagr = top.length > 0 ? (Math.pow(totalFinal / totalInvested, 1/years) - 1) * 100 : 0;
-
-  const out = $('invest-results');
-  out.innerHTML = `
-    <h2>Projected Returns <span style="font-size:10px;color:var(--muted);font-weight:400">— ${scenario} · ${years}y · ${top.length} companies</span></h2>
-    <div class="portfolio-summary">
-      <div class="ps-item"><div class="ps-label">Invested</div><div class="ps-val">${fmtDollar(totalInvested)}</div></div>
-      <div class="ps-item"><div class="ps-label">Projected</div><div class="ps-val" style="color:${netGain>=0?'var(--green)':'var(--red)'}">${fmtDollar(totalFinal)}</div></div>
-      <div class="ps-item"><div class="ps-label">Net Gain</div><div class="ps-val" style="color:${netGain>=0?'var(--green)':'var(--red)'}">${fmtDollar(netGain)}</div></div>
-      <div class="ps-item"><div class="ps-label">Portfolio CAGR</div><div class="ps-val" style="color:${cagr>=0?'var(--green)':'var(--red)'}">${cagr>=0?'+':''}${cagr.toFixed(1)}%</div></div>
-    </div>`;
-
-  // If detailed mode and single company — fetch supply chain stats
-  if (calcMode === 'detailed' && top.length === 1) {
-    await renderDetailedSingle(top[0], amount, years, scenario, out);
+async function loadStockTab() {
+  let data;
+  try {
+    const res = await fetch('/api/stocks');
+    data = await res.json();
+    if (data.error) {
+      $('stock-tbody').innerHTML = `<tr><td colspan="11" style="padding:20px;color:var(--red);text-align:center">API error: ${data.error}</td></tr>`;
+      return;
+    }
+  } catch(e) {
+    $('stock-tbody').innerHTML = `<tr><td colspan="11" style="padding:20px;color:var(--red);text-align:center">Failed to load: ${e.message}</td></tr>`;
     return;
   }
+  stockData = data.stocks || [];
+  if (stockData.length === 0) {
+    $('stock-tbody').innerHTML = `<tr><td colspan="11" style="padding:20px;color:var(--muted);text-align:center">No stock data. Try retraining first, then run data_manager.py update.</td></tr>`;
+  }
 
-  top.forEach(r => {
-    const retColor = r.totalReturn > 0 ? 'var(--green)' : 'var(--red)';
-    const sCol = SECTOR_COLORS[r.sector] || 'var(--accent)';
-    const card = document.createElement('div');
-    card.className = 'invest-card';
+  // Status badge
+  const badge = $('live-status-badge');
+  const lastUp = $('live-last-update');
+  if (data.cache_count === 0) {
+    badge.textContent = 'No cache'; badge.className = 'live-badge none';
+    lastUp.textContent = 'Run data_manager.py update to fetch live prices';
+  } else {
+    const ts = data.last_update ? new Date(data.last_update) : null;
+    const ageH = ts ? ((Date.now() - ts) / 3600000).toFixed(1) : null;
+    const fresh = ageH && ageH < 2;
+    badge.textContent = fresh ? `Live (${data.cache_count} tickers)` : `Cached (${data.cache_count})`;
+    badge.className = 'live-badge ' + (fresh ? 'live' : 'stale');
+    lastUp.textContent = ts ? `Updated ${ts.toLocaleString()}` : '';
+  }
 
-    let extraRows = '';
-    if (calcMode === 'detailed') {
-      extraRows = `
-        <div class="invest-breakdown" style="margin-top:5px">
-          ${IB('Revenue', '$'+r.revenue_bn+'B')}
-          ${IB('Margin', (r.margin||0).toFixed(1)+'%', r.margin>0?'var(--green)':'var(--red)')}
-          ${IB('YoY Gwth', fmtPct(r.yoy_growth||0), r.yoy_growth>0?'var(--green)':'var(--red)')}
-          ${IB('GNN Impact', fmtImpact(r.impact), color(r.impact))}
-        </div>`;
-    }
+  // Populate sector filter
+  const sf = $('live-sector-filter');
+  if (sf.options.length === 1) {
+    [...new Set(stockData.map(s => s.sector))].sort().forEach(sec => {
+      const o = document.createElement('option');
+      o.value = sec; o.textContent = sec; sf.appendChild(o);
+    });
+  }
 
-    card.innerHTML = `
-      <div class="invest-card-header">
-        <span class="ticker-badge" style="color:${sCol}">${r.ticker}</span>
-        <div class="invest-card-title">${r.name}<br><span style="font-size:9px;color:var(--muted);font-weight:400">${r.sector} · ${r.forecast_specific?'📌':'📊'} ${r.forecast}% forecast</span></div>
-        <div class="invest-return" style="color:${retColor}">${fmtPct(r.totalReturn)}</div>
-      </div>
-      <div class="invest-breakdown">
-        ${IB('Annual', fmtPct(r.annualGrowth), retColor)}
-        ${IB('Invested', fmtDollar(amount))}
-        ${IB('Final', fmtDollar(r.finalVal), retColor)}
-        ${IB('Gain', fmtDollar(r.gain), retColor)}
-      </div>${extraRows}`;
-    card.onclick = () => {
-      switchTab('graph', document.querySelectorAll('.tab-btn')[0]);
-      setTimeout(() => selectCompany(r.id), 80);
-    };
-    out.appendChild(card);
+  // Populate edit ticker dropdown
+  const et = $('edit-ticker');
+  if (et.options.length === 0) {
+    stockData.sort((a,b) => a.ticker.localeCompare(b.ticker)).forEach(s => {
+      const o = document.createElement('option');
+      o.value = s.ticker; o.textContent = `${s.ticker} — ${s.name}`;
+      et.appendChild(o);
+    });
+  }
+
+  renderStockTable();
+}
+
+function renderStockTable() {
+  const q = $('stock-search').value.toLowerCase();
+  const sf = $('live-sector-filter').value;
+
+  let rows = stockData.filter(s =>
+    (!q || s.ticker.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)) &&
+    (!sf || s.sector === sf)
+  );
+
+  rows.sort((a, b) => {
+    const av = a[stockSortKey] ?? -Infinity;
+    const bv = b[stockSortKey] ?? -Infinity;
+    return stockSortAsc ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+  });
+
+  const tbody = $('stock-tbody');
+  tbody.innerHTML = '';
+  rows.forEach(s => {
+    const hasLive = s.price !== null && s.price !== undefined;
+    const chgCol = !hasLive ? 'price-na' : s.change_pct >= 0 ? 'price-up' : 'price-dn';
+    const chgTxt = !hasLive ? '—' : (s.change_pct >= 0 ? '+' : '') + s.change_pct.toFixed(2) + '%';
+    const priceTxt = hasLive ? `${s.currency === 'USD' ? '$' : ''}${s.price.toLocaleString()}` : '—';
+    const sCol = SECTOR_COLORS[s.sector] || '#888';
+    const spark = s.hist_prices.length > 1 ? drawSparkline(s.hist_prices) : '<span style="color:var(--muted);font-size:10px">no data</span>';
+    const impCol = s.impact >= 0 ? 'var(--green)' : 'var(--red)';
+
+    const tr = document.createElement('tr');
+    tr.dataset.ticker = s.ticker;
+    if (s.ticker === selectedTicker) tr.classList.add('selected');
+    tr.innerHTML = `
+      <td><span style="font-family:var(--font-mono);font-weight:700;font-size:11px;color:${sCol}">${s.ticker}</span></td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${s.name}</td>
+      <td style="font-size:10px;color:var(--muted)"><span class="sector-dot" style="background:${sCol}"></span>${s.sector}</td>
+      <td style="font-family:var(--font-mono);font-weight:700;font-size:12px">${priceTxt}</td>
+      <td class="${chgCol}" style="font-family:var(--font-mono);font-size:11px;font-weight:700">${chgTxt}</td>
+      <td>${spark}</td>
+      <td style="font-family:var(--font-mono);font-size:11px">${fmtM(s.market_cap_bn)}</td>
+      <td style="font-size:11px;color:${s.margin>=0?'var(--green)':'var(--red)'}">${s.margin.toFixed(1)}%</td>
+      <td style="font-size:11px;color:${s.yoy_growth>=0?'var(--green)':'var(--red)'}">${s.yoy_growth>=0?'+':''}${s.yoy_growth.toFixed(1)}%</td>
+      <td style="font-size:11px;color:var(--yellow)">${s.forecast}%</td>
+      <td style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:${impCol}">${fmtImpact(s.impact)}</td>`;
+    tr.onclick = () => selectStock(s.ticker);
+    tbody.appendChild(tr);
   });
 }
 
-async function renderDetailedSingle(r, amount, years, scenario, out) {
-  const stats = await fetch(`/api/supply_chain_stats/${r.id}`).then(x => x.json());
-  const retColor = r.totalReturn > 0 ? 'var(--green)' : 'var(--red)';
-  const sCol = SECTOR_COLORS[r.sector] || 'var(--accent)';
+function drawSparkline(prices) {
+  const w = 70, h = 24;
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const range = max - min || 1;
+  const pts = prices.map((p, i) => {
+    const x = (i / (prices.length - 1)) * w;
+    const y = h - ((p - min) / range) * h;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const col = prices[prices.length-1] >= prices[0] ? '#3ddc84' : '#ff6b6b';
+  return `<svg class="sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>`;
+}
 
-  // Main card
-  const card = document.createElement('div');
-  card.className = 'invest-card';
-  card.innerHTML = `
-    <div class="invest-card-header">
-      <span class="ticker-badge" style="color:${sCol}">${r.ticker}</span>
-      <div class="invest-card-title">${r.name}<br><span style="font-size:9px;color:var(--muted)">${r.sector} · ${r.forecast_specific?'📌':'📊'} ${r.forecast}% forecast / ${r.forecast_months}mo</span></div>
-      <div class="invest-return" style="color:${retColor}">${fmtPct(r.totalReturn)}</div>
+function sortTable(key) {
+  if (stockSortKey === key) stockSortAsc = !stockSortAsc;
+  else { stockSortKey = key; stockSortAsc = false; }
+  renderStockTable();
+}
+
+$('stock-search').addEventListener('input', renderStockTable);
+$('live-sector-filter').addEventListener('change', renderStockTable);
+
+async function selectStock(ticker) {
+  selectedTicker = ticker;
+  document.querySelectorAll('#stock-tbody tr').forEach(tr =>
+    tr.classList.toggle('selected', tr.dataset.ticker === ticker));
+
+  const s = stockData.find(x => x.ticker === ticker);
+  if (!s) return;
+  const panel = $('live-detail-panel');
+  const sCol = SECTOR_COLORS[s.sector] || 'var(--accent)';
+  const hasLive = s.price !== null;
+
+  let week52html = '';
+  if (hasLive && s.week52_low && s.week52_high) {
+    const range = s.week52_high - s.week52_low;
+    const pos = range > 0 ? ((s.price - s.week52_low) / range * 100).toFixed(0) : 50;
+    week52html = `
+      <div style="font-size:10px;color:var(--muted);margin:8px 0 3px">52-Week Range</div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;font-family:var(--font-mono)">
+        <span>$${s.week52_low}</span><span style="color:var(--accent)">$${s.price}</span><span>$${s.week52_high}</span>
+      </div>
+      <div class="week52-bar"><div class="week52-price" style="left:calc(${pos}% - 1.5px)"></div></div>`;
+  }
+
+  let quarterlyHtml = '';
+  if (s.quarterly && s.quarterly.period) {
+    const q = s.quarterly;
+    quarterlyHtml = `
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 5px">Latest Quarter (${q.period})</div>
+      ${q.revenue != null ? `<div class="quarterly-row"><span>Revenue</span><span style="font-family:var(--font-mono);font-weight:700">$${q.revenue.toFixed(2)}B</span></div>` : ''}
+      ${q.gross_profit != null ? `<div class="quarterly-row"><span>Gross Profit</span><span style="font-family:var(--font-mono)">$${q.gross_profit.toFixed(2)}B</span></div>` : ''}
+      ${q.operating_income != null ? `<div class="quarterly-row"><span>Operating Income</span><span style="font-family:var(--font-mono);color:${q.operating_income>=0?'var(--green)':'var(--red)'}">$${q.operating_income.toFixed(2)}B</span></div>` : ''}
+      ${q.net_income != null ? `<div class="quarterly-row"><span>Net Income</span><span style="font-family:var(--font-mono);color:${q.net_income>=0?'var(--green)':'var(--red)'}">$${q.net_income.toFixed(2)}B</span></div>` : ''}`;
+  }
+
+  panel.innerHTML = `
+    <h4 style="color:${sCol}">${s.name} <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${s.ticker}</span></h4>
+    ${hasLive ? `
+      <div style="font-size:24px;font-weight:700;font-family:var(--font-mono);margin:6px 0">
+        ${s.currency !== 'USD' ? s.currency + ' ' : '$'}${s.price.toLocaleString()}
+        <span style="font-size:14px;color:${s.change_pct>=0?'var(--green)':'var(--red)'}">${s.change_pct>=0?'+':''}${s.change_pct}%</span>
+      </div>` : '<div style="color:var(--muted);font-size:11px;margin:6px 0">No live price — run data_manager.py</div>'}
+    ${week52html}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:10px">
+      ${IB('Market Cap', fmtM(s.market_cap_bn))}
+      ${IB('Volume', s.volume ? s.volume.toLocaleString() : '—')}
+      ${IB('Margin', s.margin.toFixed(1)+'%', s.margin>=0?'var(--green)':'var(--red)')}
+      ${IB('YoY Growth', (s.yoy_growth>=0?'+':'')+s.yoy_growth.toFixed(1)+'%', s.yoy_growth>=0?'var(--green)':'var(--red)')}
+      ${IB('GNN Impact', fmtImpact(s.impact), s.impact>=0?'var(--green)':'var(--red)')}
+      ${IB('Forecast', s.forecast+'%', 'var(--yellow)')}
     </div>
-    <div class="invest-breakdown">
-      ${IB('Annual Growth', fmtPct(r.annualGrowth), retColor)}
-      ${IB('Invested', fmtDollar(amount))} ${IB('Final Value', fmtDollar(r.finalVal), retColor)}
-      ${IB('Net Gain', fmtDollar(r.gain), retColor)}
-    </div>
-    <div class="invest-breakdown" style="margin-top:5px">
-      ${IB('Revenue', '$'+r.revenue_bn+'B')} ${IB('Margin', (r.margin||0).toFixed(1)+'%', r.margin>0?'var(--green)':'var(--red)')}
-      ${IB('YoY Growth', fmtPct(r.yoy_growth||0), r.yoy_growth>0?'var(--green)':'var(--red)')}
-      ${IB('GNN Impact', fmtImpact(r.impact), color(r.impact))}
-    </div>
-    <div class="invest-breakdown" style="margin-top:5px">
-      ${IB('Market Cap', fmtM(r.market_cap_bn))}
-      ${IB('R&D %', (r.r_and_d_pct||0).toFixed(1)+'%')}
-      ${IB('CapEx %', (r.capex_pct||0).toFixed(1)+'%')}
-      ${IB('Debt Ratio', (r.debt_ratio||0).toFixed(2))}
+    ${quarterlyHtml}
+    ${hasLive && s.hist_prices.length > 1 ? `
+      <div style="font-size:10px;color:var(--muted);margin:10px 0 5px">30-Day Trend</div>
+      ${drawSparkline(s.hist_prices).replace('width="70"','width="100%"').replace('viewBox="0 0 70','viewBox="0 0 280').replace(/70/g,'280')}` : ''}
+    <div style="margin-top:10px;display:flex;gap:6px">
+      <button onclick="switchTab('graph',document.querySelector('.tab-btn'));setTimeout(()=>selectCompany(${s.id}),80)"
+        style="flex:1;padding:5px;font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;cursor:pointer;color:var(--text)">
+        View in Graph
+      </button>
+      <button onclick="switchTab('invest',document.querySelectorAll('.tab-btn')[3]);$('inv-filter-mode').value='company';onFilterModeChange();$('inv-company').value=${s.id};runCalculator()"
+        style="flex:1;padding:5px;font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;cursor:pointer;color:var(--text)">
+        Analyse Investment
+      </button>
     </div>`;
-  out.appendChild(card);
+}
 
-  // Supply chain risk
-  const riskScore = Math.min(10, Math.round((stats.supplier_concentration + stats.customer_concentration) * 2));
-  const riskCol = riskScore > 6 ? 'var(--green)' : riskScore > 3 ? 'var(--yellow)' : 'var(--red)';
-  const riskLabel = riskScore > 6 ? 'Low Risk' : riskScore > 3 ? 'Medium Risk' : 'High Risk';
+async function refreshStockData() {
+  const btn = document.querySelector('.update-btn');
+  btn.disabled = true; btn.textContent = '⟳ Loading...';
+  await loadStockTab();
+  btn.disabled = false; btn.textContent = '⟳ Refresh Cache';
+}
 
-  const riskDiv = document.createElement('div');
-  riskDiv.className = 'chain-section';
-  riskDiv.innerHTML = `
-    <h4>Supply Chain Risk Assessment</h4>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <div style="font-size:28px;font-weight:700;font-family:var(--font-mono);color:${riskCol}">${riskScore}/10</div>
-      <div>
-        <div style="font-size:13px;font-weight:700;color:${riskCol}">${riskLabel}</div>
-        <div style="font-size:10px;color:var(--muted)">Based on supply chain connectivity</div>
+// ─── File Upload ──────────────────────────────────────────────────
+function handleFileDrop(event) {
+  event.preventDefault();
+  $('upload-zone').classList.remove('drag');
+  const file = event.dataTransfer.files[0];
+  if (file) processUploadFile(file);
+}
+
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (file) processUploadFile(file);
+}
+
+function processUploadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const lines = text.trim().split('
+').filter(l => !l.startsWith('#'));
+    if (lines.length < 2) { alert('CSV must have a header and at least one data row'); return; }
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    uploadedRows = lines.slice(1).map(line => {
+      const vals = line.split(',');
+      return Object.fromEntries(headers.map((h, i) => [h, (vals[i] || '').trim()]));
+    }).filter(r => r.ticker || r.name);
+
+    const preview = $('upload-preview');
+    const previewContent = $('upload-preview-content');
+    previewContent.innerHTML = uploadedRows.map(r => `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:7px 9px;margin-bottom:5px;font-size:11px">
+        <strong style="color:var(--accent)">${r.ticker || '?'}</strong> — ${r.name || '?'}
+        <span style="color:var(--muted);margin-left:6px">${r.sector || ''}</span>
+        ${r.revenue_bn ? `<br>Rev: $${r.revenue_bn}B` : ''}
+        ${r.margin ? ` · Margin: ${r.margin}` : ''}
+        ${r.market_cap_bn ? ` · Cap: $${r.market_cap_bn}B` : ''}
+      </div>`).join('');
+    preview.style.display = '';
+    $('edges-input-list').innerHTML = '';
+    addEdgeInput();
+  };
+  reader.readAsText(file);
+}
+
+function addEdgeInput() {
+  const list = $('edges-input-list');
+  const row = document.createElement('div');
+  row.className = 'edge-input-row';
+  row.innerHTML = `
+    <input class="form-input" placeholder="Supplier ticker" style="font-size:11px;padding:4px 7px">
+    <span style="line-height:28px;color:var(--muted)">→</span>
+    <input class="form-input" placeholder="Customer ticker" style="font-size:11px;padding:4px 7px">
+    <input class="form-input" placeholder="Strength 0-1" style="font-size:11px;padding:4px 7px;width:70px">
+    <button onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 3px">×</button>`;
+  list.appendChild(row);
+}
+
+async function submitUpload() {
+  if (!uploadedRows.length) { alert('No data to upload'); return; }
+
+  // Build CSV content
+  const headers = ['name','ticker','sector','revenue_bn','margin','debt_ratio','yoy_growth',
+                   'market_cap_bn','r_and_d_pct','capex_pct','sector_growth_forecast','forecast_horizon_months'];
+  let csvContent = headers.join(',') + '
+';
+  uploadedRows.forEach(r => {
+    csvContent += headers.map(h => r[h.toLowerCase()] || '').join(',') + '
+';
+  });
+
+  // Collect edges
+  const edgeRows = $('edges-input-list').querySelectorAll('.edge-input-row');
+  const edges = [];
+  edgeRows.forEach(row => {
+    const inputs = row.querySelectorAll('input');
+    const sup = inputs[0].value.trim().toUpperCase();
+    const cus = inputs[1].value.trim().toUpperCase();
+    const str = parseFloat(inputs[2].value) || 0.5;
+    if (sup && cus) edges.push({ supplier: sup, customer: cus, strength: str });
+  });
+
+  const formData = new FormData();
+  const blob = new Blob([csvContent], { type: 'text/csv' });
+  formData.append('file', blob, 'upload.csv');
+  formData.append('edges', JSON.stringify(edges));
+
+  const res = await fetch('/api/upload_company', { method: 'POST', body: formData });
+  const data = await res.json();
+  const result = $('upload-result');
+  if (data.ok) {
+    result.style.color = 'var(--green)';
+    result.textContent = data.message;
+    $('upload-preview').style.display = 'none';
+    uploadedRows = [];
+    setTimeout(loadStockTab, 500);
+  } else {
+    result.style.color = 'var(--red)';
+    result.textContent = data.error || 'Upload failed';
+  }
+}
+
+async function submitEdit() {
+  const ticker = $('edit-ticker').value;
+  const body = { ticker };
+  const rev = $('edit-revenue').value; if (rev) body.revenue_bn = parseFloat(rev);
+  const mar = $('edit-margin').value; if (mar) body.margin = parseFloat(mar) / 100;
+  const yoy = $('edit-yoy').value; if (yoy) body.yoy_growth = parseFloat(yoy) / 100;
+  const cap = $('edit-mktcap').value; if (cap) body.market_cap_bn = parseFloat(cap);
+  const fc  = $('edit-forecast').value; if (fc) body.sector_growth_forecast = parseFloat(fc) / 100;
+  const mo  = $('edit-months').value; if (mo) body.forecast_horizon_months = parseInt(mo);
+
+  const res = await fetch('/api/update_company_data', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  const result = $('edit-result');
+  result.style.color = data.ok ? 'var(--green)' : 'var(--red)';
+  result.textContent = data.message || data.error;
+}
+
+
+</script>
+<style>
+/* ── Theme variables ──────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:      #09090f; --surface: #111118; --surface2: #18181f;
+  --border:  #1e1e2e; --accent:  #5b8dee; --green: #3ddc84;
+  --red:     #ff6b6b; --yellow:  #ffd166; --purple: #c084fc;
+  --text:    #e4e4f0; --muted:   #6b6b80; --card: #13131a;
+}
+[data-theme="light"] {
+  --bg:      #f4f4f8; --surface: #ffffff; --surface2: #f0f0f5;
+  --border:  #dddde8; --accent:  #3b6fe0; --green: #1a9e5a;
+  --red:     #d93f3f; --yellow:  #c4880a; --purple: #8b5cf6;
+  --text:    #1a1a2e; --muted:   #6b6b80; --card: #ffffff;
+}
+:root { --font-mono: 'JetBrains Mono','Fira Code',monospace; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--text); font-family:'IBM Plex Sans','Segoe UI',sans-serif; font-size:14px; display:flex; height:100vh; overflow:hidden; transition:background .2s,color .2s; }
+
+/* ── Sidebar ────────────────────────────────────────────────────── */
+#sidebar { width:300px; min-width:300px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+#sidebar-header { padding:14px 16px 10px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+#sidebar-header h1 { font-size:13px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--accent); }
+#sidebar-header p { font-size:10px; color:var(--muted); margin-top:2px; }
+.theme-btn { background:none; border:1px solid var(--border); border-radius:6px; color:var(--text); cursor:pointer; padding:4px 8px; font-size:13px; transition:all .15s; }
+.theme-btn:hover { border-color:var(--accent); }
+#search-box { margin:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:7px 11px; color:var(--text); font-size:13px; width:calc(100% - 24px); outline:none; transition:border-color .2s; }
+#search-box:focus { border-color:var(--accent); }
+#company-list { overflow-y:auto; flex:1; padding:2px 0; }
+.company-item { padding:8px 14px; cursor:pointer; display:flex; align-items:center; gap:8px; border-left:3px solid transparent; transition:background .12s; }
+.company-item:hover { background:rgba(91,141,238,.07); }
+.company-item.active { background:rgba(91,141,238,.13); border-left-color:var(--accent); }
+.ticker-badge { font-family:var(--font-mono); font-size:10px; font-weight:700; background:var(--surface2); padding:2px 5px; border-radius:4px; min-width:38px; text-align:center; color:var(--accent); }
+.company-info { flex:1; min-width:0; }
+.company-name { font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.company-sector { font-size:10px; color:var(--muted); }
+.impact-pill { font-family:var(--font-mono); font-size:10px; padding:1px 5px; border-radius:8px; font-weight:700; }
+.impact-pos { background:rgba(61,220,132,.12); color:var(--green); }
+.impact-neg { background:rgba(255,107,107,.12); color:var(--red); }
+.impact-neu { background:rgba(107,107,128,.12); color:var(--muted); }
+
+/* ── Main ─────────────────────────────────────────────────────── */
+#main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+#topbar { height:44px; background:var(--surface); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 16px; gap:4px; }
+.tab-btn { background:none; border:none; color:var(--muted); cursor:pointer; padding:5px 12px; border-radius:5px; font-size:12px; font-weight:600; transition:all .15s; }
+.tab-btn:hover { color:var(--text); background:var(--border); }
+.tab-btn.active { color:var(--accent); background:rgba(91,141,238,.12); }
+
+/* ── Views ─────────────────────────────────────────────────────── */
+.view { display:none; flex:1; overflow:hidden; }
+.view.active { display:flex; }
+
+/* ── Graph ─────────────────────────────────────────────────────── */
+#view-graph { position:relative; }
+#graph-svg { width:100%; height:100%; background:var(--bg); }
+.node circle { stroke-width:2; cursor:pointer; }
+.node text { font-size:9px; fill:var(--text); pointer-events:none; font-family:var(--font-mono); }
+.link { stroke-width:1.2; marker-end:url(#arrow); }
+#graph-controls { position:absolute; top:12px; right:12px; display:flex; gap:5px; }
+.ctrl-btn { background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:5px; padding:5px 9px; cursor:pointer; font-size:11px; transition:all .15s; }
+.ctrl-btn:hover { border-color:var(--accent); color:var(--accent); }
+
+/* ── Detail panel ─────────────────────────────────────────────── */
+#detail-panel { position:absolute; bottom:0; left:0; right:0; max-height:60%; background:var(--surface); border-top:1px solid var(--border); overflow-y:auto; transform:translateY(100%); transition:transform .28s cubic-bezier(.4,0,.2,1); z-index:10; }
+#detail-panel.open { transform:translateY(0); }
+#detail-inner { padding:18px 22px 22px; }
+.detail-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
+.detail-title { font-size:19px; font-weight:700; }
+.detail-subtitle { font-size:11px; color:var(--muted); margin-top:3px; }
+.close-btn { background:none; border:none; color:var(--muted); cursor:pointer; font-size:18px; padding:0 3px; }
+.close-btn:hover { color:var(--text); }
+.metrics-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; margin-bottom:16px; }
+.metric-card { background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:9px 12px; }
+.metric-label { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+.metric-value { font-size:17px; font-weight:700; font-family:var(--font-mono); margin-top:2px; }
+.supply-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.supply-col h3 { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:7px; display:flex; align-items:center; gap:5px; }
+.supply-col h3 span { font-size:9px; padding:1px 5px; border-radius:3px; }
+.up-label { background:rgba(255,209,102,.1); color:var(--yellow); }
+.dn-label { background:rgba(61,220,132,.1); color:var(--green); }
+.supply-item { background:var(--bg); border:1px solid var(--border); border-radius:5px; padding:7px 10px; margin-bottom:5px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; transition:border-color .12s; }
+.supply-item:hover { border-color:var(--accent); }
+.supply-item-name { font-size:12px; font-weight:600; }
+.supply-item-sub { font-size:10px; color:var(--muted); }
+.str-bar { height:3px; background:var(--border); border-radius:2px; width:50px; overflow:hidden; margin-top:3px; }
+.str-fill { height:100%; background:var(--accent); border-radius:2px; }
+
+/* ── Shock ────────────────────────────────────────────────────── */
+#view-shock { flex-direction:column; }
+#shock-layout { display:grid; grid-template-columns:320px 1fr; height:100%; overflow:hidden; }
+#shock-controls { border-right:1px solid var(--border); padding:18px; overflow-y:auto; }
+#shock-controls h2 { font-size:13px; font-weight:700; margin-bottom:14px; }
+.form-group { margin-bottom:12px; }
+.form-label { display:block; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+.form-select, .form-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:5px; padding:7px 10px; color:var(--text); font-size:13px; outline:none; transition:border-color .2s; }
+.form-select:focus,.form-input:focus { border-color:var(--accent); }
+.range-wrap { display:flex; align-items:center; gap:8px; }
+.range-wrap input[type=range] { flex:1; accent-color:var(--accent); }
+.range-val { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--accent); min-width:46px; text-align:right; }
+.run-btn { width:100%; background:var(--accent); color:#fff; border:none; border-radius:7px; padding:10px; font-size:13px; font-weight:700; cursor:pointer; margin-top:4px; transition:opacity .15s; }
+.run-btn:hover { opacity:.88; }
+.info-box { margin-top:16px; font-size:11px; color:var(--muted); line-height:1.7; background:var(--surface2); border-radius:6px; padding:10px 12px; }
+#shock-results { padding:18px; overflow-y:auto; }
+#shock-results h2 { font-size:13px; font-weight:700; margin-bottom:12px; }
+.result-row { display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--surface); border:1px solid var(--border); border-radius:7px; margin-bottom:5px; cursor:pointer; transition:border-color .12s; }
+.result-row:hover { border-color:var(--accent); }
+.result-bar-wrap { flex:1; }
+.result-bar { height:5px; background:var(--border); border-radius:3px; overflow:hidden; }
+.result-bar-fill { height:100%; border-radius:3px; }
+.delta-val { font-family:var(--font-mono); font-size:11px; font-weight:700; min-width:56px; text-align:right; }
+.rel-badge { font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; white-space:nowrap; }
+
+/* ── Sectors bubble ───────────────────────────────────────────── */
+#view-sectors { flex-direction:column; overflow:hidden; }
+#sector-topbar { padding:12px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; background:var(--surface); }
+#sector-topbar h2 { font-size:13px; font-weight:700; }
+#sector-content { display:grid; grid-template-columns:1fr 340px; flex:1; overflow:hidden; }
+#bubble-svg-wrap { overflow:hidden; position:relative; }
+#sector-detail { border-left:1px solid var(--border); padding:18px; overflow-y:auto; background:var(--surface); }
+#sector-detail h3 { font-size:15px; font-weight:700; margin-bottom:4px; }
+#sector-detail .sector-stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:12px 0; }
+.s-stat { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; }
+.s-stat-label { font-size:9px; color:var(--muted); text-transform:uppercase; }
+.s-stat-val { font-size:15px; font-weight:700; font-family:var(--font-mono); margin-top:2px; }
+.s-company-list { display:flex; flex-direction:column; gap:4px; }
+.s-co-row { display:flex; align-items:center; gap:8px; padding:6px 8px; background:var(--bg); border:1px solid var(--border); border-radius:5px; cursor:pointer; transition:border-color .12s; }
+.s-co-row:hover { border-color:var(--accent); }
+
+/* ── Investment Calculator ───────────────────────────────────── */
+#view-invest { flex-direction:column; overflow:hidden; }
+#invest-layout { display:grid; grid-template-columns:330px 1fr; height:100%; overflow:hidden; }
+#invest-controls { border-right:1px solid var(--border); padding:14px; overflow-y:auto; background:var(--surface); }
+#invest-controls h2 { font-size:12px; font-weight:700; margin-bottom:10px; }
+.calc-tabs { display:flex; gap:3px; margin-bottom:12px; }
+.calc-tab { flex:1; text-align:center; padding:5px; border:1px solid var(--border); border-radius:4px; cursor:pointer; font-size:10px; font-weight:600; color:var(--muted); background:none; transition:all .15s; }
+.calc-tab.active { border-color:var(--accent); color:var(--accent); background:rgba(91,141,238,.1); }
+#invest-results { padding:14px; overflow-y:auto; }
+#invest-results h2 { font-size:12px; font-weight:700; margin-bottom:10px; }
+.preset-btn { display:inline-block; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:2px 7px; font-size:10px; cursor:pointer; margin:0 3px 5px 0; transition:all .15s; color:var(--text); }
+.preset-btn:hover,.preset-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(91,141,238,.08); }
+.invest-card { background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:11px 13px; margin-bottom:6px; cursor:pointer; transition:border-color .15s; }
+.invest-card:hover { border-color:var(--accent); }
+.invest-card-header { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+.invest-card-title { font-size:12px; font-weight:700; flex:1; }
+.invest-return { font-family:var(--font-mono); font-size:14px; font-weight:700; }
+.invest-breakdown { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; margin-top:6px; }
+.inv-b { background:var(--bg); border-radius:4px; padding:5px 6px; }
+.inv-b-label { font-size:9px; color:var(--muted); text-transform:uppercase; }
+.inv-b-val { font-size:11px; font-weight:700; font-family:var(--font-mono); margin-top:1px; }
+.portfolio-summary { background:rgba(91,141,238,.07); border:1px solid rgba(91,141,238,.2); border-radius:7px; padding:10px 12px; margin-bottom:12px; display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
+.ps-item { text-align:center; }
+.ps-label { font-size:9px; color:var(--muted); }
+.ps-val { font-size:14px; font-weight:700; font-family:var(--font-mono); color:var(--accent); margin-top:1px; }
+.chain-section { background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:11px 13px; margin-bottom:8px; }
+.chain-section h4 { font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
+.chain-co { display:flex; align-items:center; gap:7px; padding:4px 0; border-bottom:1px solid var(--border); }
+.chain-co:last-child { border-bottom:none; }
+.exp-row { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+.exp-label { font-size:11px; min-width:110px; }
+.exp-bar { flex:1; height:5px; background:var(--border); border-radius:3px; overflow:hidden; }
+.exp-fill { height:100%; border-radius:3px; }
+.risk-tag { font-size:9px; font-weight:700; padding:2px 5px; border-radius:3px; margin-left:4px; }
+
+/* ── Live Data Tab ──────────────────────────────────────────── */
+#view-live { flex-direction:column; overflow:hidden; }
+#live-layout { display:grid; grid-template-columns:1fr 340px; height:100%; overflow:hidden; }
+#live-table-wrap { padding:14px; overflow-y:auto; }
+#live-sidebar { border-left:1px solid var(--border); padding:16px; overflow-y:auto; background:var(--surface); display:flex; flex-direction:column; gap:12px; }
+#live-header { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+#live-header h2 { font-size:13px; font-weight:700; flex:1; }
+.live-badge { font-size:9px; font-weight:700; padding:2px 6px; border-radius:3px; }
+.live-badge.live { background:rgba(61,220,132,.15); color:var(--green); }
+.live-badge.stale { background:rgba(255,209,102,.15); color:var(--yellow); }
+.live-badge.none { background:rgba(107,107,128,.15); color:var(--muted); }
+.stock-table { width:100%; border-collapse:collapse; font-size:12px; }
+.stock-table th { text-align:left; padding:6px 8px; font-size:9px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); border-bottom:2px solid var(--border); position:sticky; top:0; background:var(--bg); cursor:pointer; user-select:none; }
+.stock-table th:hover { color:var(--text); }
+.stock-table td { padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.stock-table tr:hover td { background:rgba(91,141,238,.05); }
+.stock-table tr.selected td { background:rgba(91,141,238,.1); }
+.sparkline { display:inline-block; vertical-align:middle; }
+.price-up { color:var(--green); }
+.price-dn { color:var(--red); }
+.price-na { color:var(--muted); }
+.sector-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+.update-btn { background:var(--accent); color:#fff; border:none; border-radius:6px; padding:6px 12px; font-size:11px; font-weight:700; cursor:pointer; transition:opacity .15s; }
+.update-btn:hover { opacity:.85; }
+.update-btn:disabled { opacity:.5; cursor:not-allowed; }
+.upload-zone { border:2px dashed var(--border); border-radius:8px; padding:20px; text-align:center; transition:border-color .2s; cursor:pointer; }
+.upload-zone:hover, .upload-zone.drag { border-color:var(--accent); }
+.upload-zone p { font-size:12px; color:var(--muted); margin-top:6px; }
+.upload-zone input[type=file] { display:none; }
+.detail-stock { background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:12px; }
+.detail-stock h4 { font-size:12px; font-weight:700; margin-bottom:8px; }
+.week52-bar { height:6px; background:var(--border); border-radius:3px; margin:6px 0; position:relative; overflow:visible; }
+.week52-price { position:absolute; height:10px; width:3px; background:var(--accent); border-radius:2px; top:-2px; }
+.quarterly-row { display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid var(--border); font-size:11px; }
+.quarterly-row:last-child { border:none; }
+.edge-input-row { display:flex; gap:6px; margin-bottom:6px; }
+.edge-input-row input { flex:1; }
+
+/* ── Loading ────────────────────────────────────────────────────── */
+#loading { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; z-index:999; }
+.spinner { width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loading p { color:var(--muted); font-size:12px; }
+
+/* scrollbar */
+::-webkit-scrollbar { width:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><p>Loading supply chain graph…</p></div>
+
+<!-- ── Sidebar ─────────────────────────────────────────── -->
+<div id="sidebar">
+  <div id="sidebar-header">
+    <div><h1>Supply Chain Intel</h1><p>GNN · XPU · BF16</p></div>
+    <button class="theme-btn" onclick="toggleTheme()" id="theme-btn">☀️</button>
+  </div>
+  <input id="search-box" type="text" placeholder="Search companies, sectors…">
+  <div id="company-list"></div>
+</div>
+
+<!-- ── Main ──────────────────────────────────────────────── -->
+<div id="main">
+  <div id="topbar">
+    <button class="tab-btn active" onclick="switchTab('graph',this)">Graph</button>
+    <button class="tab-btn" onclick="switchTab('shock',this)">Shock Propagation</button>
+    <button class="tab-btn" onclick="switchTab('sectors',this)">Sector Bubbles</button>
+    <button class="tab-btn" onclick="switchTab('invest',this)">Investment Calculator</button>
+    <button class="tab-btn" onclick="switchTab('live',this)">📡 Live Data</button>
+  </div>
+
+  <!-- Graph -->
+  <div class="view active" id="view-graph">
+    <svg id="graph-svg">
+      <defs>
+        <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="rgba(91,141,238,.4)"/>
+        </marker>
+      </defs>
+    </svg>
+    <div id="graph-controls">
+      <button class="ctrl-btn" onclick="resetZoom()">Reset</button>
+      <button class="ctrl-btn" onclick="toggleLabels()">Labels</button>
+      <button class="ctrl-btn" onclick="colorBy='impact';redrawNodes()">By Impact</button>
+      <button class="ctrl-btn" onclick="colorBy='sector';redrawNodes()">By Sector</button>
+    </div>
+    <div id="detail-panel">
+      <div id="detail-inner"></div>
+    </div>
+  </div>
+
+  <!-- Shock -->
+  <div class="view" id="view-shock">
+    <div id="shock-layout">
+      <div id="shock-controls">
+        <h2>Shock Propagation</h2>
+        <div class="form-group">
+          <label class="form-label">Mode</label>
+          <select class="form-select" id="shock-mode" onchange="updateShockMode()">
+            <option value="sector">By Sector</option>
+            <option value="company">By Company</option>
+          </select>
+        </div>
+        <div class="form-group" id="shock-sector-group">
+          <label class="form-label">Sector</label>
+          <select class="form-select" id="shock-sector"><option value="">— all —</option></select>
+        </div>
+        <div class="form-group" id="shock-company-group" style="display:none">
+          <label class="form-label">Company</label>
+          <select class="form-select" id="shock-company"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Growth Signal</label>
+          <div class="range-wrap">
+            <input type="range" id="shock-range" min="-80" max="150" value="50"
+                   oninput="document.getElementById('shock-range-val').textContent=this.value+'%'">
+            <span class="range-val" id="shock-range-val">50%</span>
+          </div>
+        </div>
+        <button class="run-btn" onclick="runShock()">▶ Run Propagation</button>
+        <div class="info-box">
+          <strong style="color:var(--text)">How it works</strong><br>
+          The GNN diffuses the growth signal upstream (suppliers feel demand pressure) and downstream (customers see cost/supply changes). Impact scores show predicted revenue-impact % from the trained model.<br><br>
+          <span style="color:var(--accent)">⚡ Direct</span> — companies in the shocked sector<br>
+          <span style="color:var(--yellow)">↑ Supplier</span> — upstream suppliers<br>
+          <span style="color:var(--green)">↓ Customer</span> — downstream customers<br>
+          <span style="color:var(--muted)">~ Indirect</span> — second-order effects
+        </div>
+      </div>
+      <div id="shock-results"><h2>Impact Results</h2><p style="color:var(--muted);font-size:12px">Run a shock to see results.</p></div>
+    </div>
+  </div>
+
+  <!-- Sector Bubbles -->
+  <div class="view" id="view-sectors">
+    <div id="sector-topbar">
+      <h2>Sector Map</h2>
+      <span style="font-size:11px;color:var(--muted)">Bubble size = total market cap · Click sector to explore</span>
+    </div>
+    <div id="sector-content">
+      <div id="bubble-svg-wrap"><svg id="bubble-svg" style="width:100%;height:100%"></svg></div>
+      <div id="sector-detail"><p style="color:var(--muted);font-size:12px;margin-top:40px;text-align:center">Click a sector bubble</p></div>
+    </div>
+  </div>
+
+  <!-- Investment Calculator -->
+  <div class="view" id="view-invest">
+    <div id="invest-layout">
+      <div id="invest-controls">
+        <h2>Investment Calculator</h2>
+        <div class="calc-tabs">
+          <button class="calc-tab active" onclick="setCalcMode('standard',this)">Standard</button>
+          <button class="calc-tab" onclick="setCalcMode('detailed',this)">Detailed</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Initial Investment ($)</label>
+          <input class="form-input" type="number" id="inv-amount" value="10000" step="1000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Time Horizon</label>
+          <div class="range-wrap">
+            <input type="range" id="inv-years" min="1" max="20" value="5"
+                   oninput="$('inv-years-val').textContent=this.value+'y'">
+            <span class="range-val" id="inv-years-val">5y</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Scenario</label>
+          <select class="form-select" id="inv-scenario" onchange="onScenarioChange()">
+            <option value="forecast">Use Growth Forecasts</option>
+            <option value="bull">Bull Case (+30%)</option>
+            <option value="base">Base Case (+15%)</option>
+            <option value="bear">Bear Case (-10%)</option>
+            <option value="custom">Custom %</option>
+          </select>
+        </div>
+        <div class="form-group" id="inv-custom-group" style="display:none">
+          <label class="form-label">Custom Annual Growth</label>
+          <div class="range-wrap">
+            <input type="range" id="inv-custom-pct" min="-50" max="150" value="20"
+                   oninput="$('inv-custom-val').textContent=this.value+'%'">
+            <span class="range-val" id="inv-custom-val">20%</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Filter Mode</label>
+          <select class="form-select" id="inv-filter-mode" onchange="onFilterModeChange()">
+            <option value="all">All Companies</option>
+            <option value="sector">By Sector</option>
+            <option value="company">Single Company</option>
+          </select>
+        </div>
+        <div id="inv-sector-group" style="display:none" class="form-group">
+          <label class="form-label">Sector</label>
+          <select class="form-select" id="inv-sector"><option value="">All sectors</option></select>
+        </div>
+        <div id="inv-company-group" style="display:none" class="form-group">
+          <label class="form-label">Company</label>
+          <select class="form-select" id="inv-company"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Presets</label><br>
+          <button class="preset-btn" onclick="loadPreset('ai')">AI Infra</button>
+          <button class="preset-btn" onclick="loadPreset('auto')">EV Transition</button>
+          <button class="preset-btn" onclick="loadPreset('memory')">Memory Boom</button>
+          <button class="preset-btn" onclick="loadPreset('top5')">Top Impact</button>
+        </div>
+        <button class="run-btn" onclick="runCalculator()">📊 Calculate</button>
+      </div>
+      <div id="invest-results"><h2>Projected Returns</h2><p style="color:var(--muted);font-size:12px">Configure and calculate.</p></div>
+    </div>
+  </div>
+
+  <!-- Live Data -->
+  <div class="view" id="view-live">
+    <div id="live-layout">
+      <div id="live-table-wrap">
+        <div id="live-header">
+          <h2>Live Stock Data</h2>
+          <span id="live-status-badge" class="live-badge none">No cache</span>
+          <span id="live-last-update" style="font-size:10px;color:var(--muted)"></span>
+          <input id="stock-search" type="text" placeholder="Filter..." style="padding:4px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:12px;width:140px;outline:none">
+          <select id="live-sector-filter" style="padding:4px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:12px;outline:none">
+            <option value="">All Sectors</option>
+          </select>
+          <button class="update-btn" onclick="refreshStockData()">⟳ Refresh Cache</button>
+        </div>
+        <table class="stock-table" id="stock-table">
+          <thead>
+            <tr>
+              <th onclick="sortTable('ticker')">Ticker ↕</th>
+              <th onclick="sortTable('name')">Company ↕</th>
+              <th onclick="sortTable('sector')">Sector ↕</th>
+              <th onclick="sortTable('price')">Price ↕</th>
+              <th onclick="sortTable('change_pct')">Chg% ↕</th>
+              <th>Trend</th>
+              <th onclick="sortTable('market_cap_bn')">Mkt Cap ↕</th>
+              <th onclick="sortTable('margin')">Margin ↕</th>
+              <th onclick="sortTable('yoy_growth')">YoY ↕</th>
+              <th onclick="sortTable('forecast')">Forecast ↕</th>
+              <th onclick="sortTable('impact')">GNN Impact ↕</th>
+            </tr>
+          </thead>
+          <tbody id="stock-tbody"></tbody>
+        </table>
+      </div>
+      <div id="live-sidebar">
+        <!-- Stock detail -->
+        <div class="detail-stock" id="live-detail-panel">
+          <p style="color:var(--muted);font-size:11px;text-align:center;padding:20px 0">Click a row to see details</p>
+        </div>
+        <!-- Add / Update Company -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:12px">
+          <h4 style="font-size:12px;font-weight:700;margin-bottom:10px">➕ Add / Update Company</h4>
+          <div class="upload-zone" id="upload-zone" onclick="$('company-upload').click()"
+               ondragover="event.preventDefault();this.classList.add('drag')"
+               ondragleave="this.classList.remove('drag')"
+               ondrop="handleFileDrop(event)">
+            <div style="font-size:24px">📄</div>
+            <div style="font-size:12px;font-weight:600;margin-top:4px">Drop CSV or click to upload</div>
+            <p>Use companies_template.csv format</p>
+            <input type="file" id="company-upload" accept=".csv" onchange="handleFileSelect(event)">
+          </div>
+          <div id="upload-preview" style="display:none;margin-top:10px">
+            <div style="font-size:11px;font-weight:700;margin-bottom:6px;color:var(--text)">Preview</div>
+            <div id="upload-preview-content"></div>
+            <div style="font-size:11px;font-weight:700;margin:8px 0 5px;color:var(--text)">Supply Chain Edges (optional)</div>
+            <div id="edges-input-list"></div>
+            <button onclick="addEdgeInput()" style="font-size:10px;color:var(--accent);background:none;border:none;cursor:pointer;padding:2px 0">+ Add edge</button>
+            <button class="run-btn" style="margin-top:8px" onclick="submitUpload()">Upload Company</button>
+          </div>
+          <div id="upload-result" style="margin-top:8px;font-size:11px"></div>
+        </div>
+        <!-- Manual data update -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:12px">
+          <h4 style="font-size:12px;font-weight:700;margin-bottom:8px">✏️ Update Company Data</h4>
+          <div class="form-group">
+            <label class="form-label">Ticker</label>
+            <select class="form-select" id="edit-ticker" style="font-size:12px;padding:5px 8px"></select>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+            <div><label class="form-label">Revenue ($B)</label><input class="form-input" id="edit-revenue" type="number" step="0.1" placeholder="e.g. 52.9" style="font-size:11px;padding:5px 7px"></div>
+            <div><label class="form-label">Net Margin %</label><input class="form-input" id="edit-margin" type="number" step="0.1" placeholder="e.g. -0.5" style="font-size:11px;padding:5px 7px"></div>
+            <div><label class="form-label">YoY Growth %</label><input class="form-input" id="edit-yoy" type="number" step="0.1" placeholder="e.g. 13.7" style="font-size:11px;padding:5px 7px"></div>
+            <div><label class="form-label">Market Cap ($B)</label><input class="form-input" id="edit-mktcap" type="number" step="1" placeholder="e.g. 312" style="font-size:11px;padding:5px 7px"></div>
+            <div><label class="form-label">Sector Forecast %</label><input class="form-input" id="edit-forecast" type="number" step="1" placeholder="e.g. 45" style="font-size:11px;padding:5px 7px"></div>
+            <div><label class="form-label">Forecast Months</label><input class="form-input" id="edit-months" type="number" step="1" placeholder="e.g. 12" style="font-size:11px;padding:5px 7px"></div>
+          </div>
+          <button class="run-btn" onclick="submitEdit()" style="font-size:12px;padding:8px">💾 Save Changes</button>
+          <div id="edit-result" style="margin-top:6px;font-size:11px"></div>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">Note: Retrain after saving to apply changes to GNN predictions.</div>
+        </div>
+        <!-- Instructions -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:12px">
+          <h4 style="font-size:11px;font-weight:700;margin-bottom:7px;color:var(--muted);text-transform:uppercase">📡 Fetch Live Prices</h4>
+          <div style="font-size:10px;color:var(--muted);line-height:1.7;font-family:var(--font-mono)">
+            On your Gentoo machine:<br>
+            <span style="color:var(--accent)">pip install yfinance</span><br>
+            <span style="color:var(--green)">python data_manager.py update</span><br>
+            <span style="color:var(--yellow)">python data_manager.py status</span><br><br>
+            <span style="color:var(--muted)">Fetches all 59 tickers automatically. Restart app.py after updating.</span>
+          </div>
+        </div>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      ${IB('Supplier Links', stats.supplier_concentration.toFixed(2))}
-      ${IB('Customer Links', stats.customer_concentration.toFixed(2))}
-      ${IB('Upstream 2-hop', stats.upstream_2hop.length + ' co.')}
-      ${IB('Downstream 2-hop', stats.downstream_2hop.length + ' co.')}
-    </div>
-    <div style="margin-top:8px;font-size:10px;color:var(--muted)">
-      Chain avg forecast: <strong style="color:var(--yellow)">${stats.chain_avg_forecast}%</strong> ·
-      Chain avg GNN impact: <strong style="color:${stats.chain_avg_impact>=0?'var(--green)':'var(--red)'}">${fmtImpact(stats.chain_avg_impact)}</strong>
-    </div>`;
-  out.appendChild(riskDiv);
+  </div>
+</div>
 
-  // Sector exposure
-  const expDiv = document.createElement('div');
-  expDiv.className = 'chain-section';
-  const maxExp = Math.max(...Object.values(stats.sector_exposure), 1);
-  expDiv.innerHTML = `<h4>Supply Chain Sector Exposure</h4>` +
-    Object.entries(stats.sector_exposure).map(([s, v]) => {
-      const pct = (v / maxExp * 100).toFixed(0);
-      const sc = SECTOR_COLORS[s] || 'var(--accent)';
-      return `<div class="exp-row">
-        <span class="exp-label" style="font-size:11px">${s}</span>
-        <div class="exp-bar"><div class="exp-fill" style="width:${pct}%;background:${sc}"></div></div>
-        <span style="font-size:10px;color:var(--muted);font-family:var(--font-mono);min-width:50px;text-align:right">${fmtM(v)}</span>
-      </div>`;
-    }).join('');
-  out.appendChild(expDiv);
-
-  // Upstream suppliers
-  if (stats.upstream_2hop.length) {
-    const upDiv = document.createElement('div');
-    upDiv.className = 'chain-section';
-    upDiv.innerHTML = `<h4>↑ Upstream Suppliers (2-hop)</h4>` +
-      stats.upstream_2hop.slice(0, 8).map(c => `
-        <div class="chain-co">
-          <span class="ticker-badge" style="font-size:9px">${c.ticker}</span>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:11px;font-weight:600">${c.name}</div>
-            <div style="font-size:9px;color:var(--muted)">${c.sector} · ${c.forecast}% forecast</div>
-          </div>
-          <span style="font-family:var(--font-mono);font-size:10px;color:${color(c.impact)}">${fmtImpact(c.impact)}</span>
-        </div>`).join('');
-    out.appendChild(upDiv);
-  }
-
-  // Downstream customers
-  if (stats.downstream_2hop.length) {
-    const dnDiv = document.createElement('div');
-    dnDiv.className = 'chain-section';
-    dnDiv.innerHTML = `<h4>↓ Downstream Customers (2-hop)</h4>` +
-      stats.downstream_2hop.slice(0, 8).map(c => `
-        <div class="chain-co">
-          <span class="ticker-badge" style="font-size:9px">${c.ticker}</span>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:11px;font-weight:600">${c.name}</div>
-            <div style="font-size:9px;color:var(--muted)">${c.sector} · ${c.forecast}% forecast</div>
-          </div>
-          <span style="font-family:var(--font-mono);font-size:10px;color:${color(c.impact)}">${fmtImpact(c.impact)}</span>
-        </div>`).join('');
-    out.appendChild(dnDiv);
-  }
-}
-
-function IB(label, val, col) {
-  return `<div class="inv-b"><div class="inv-b-label">${label}</div><div class="inv-b-val" style="${col?'color:'+col:''}">${val}</div></div>`;
-}
-
-// ─── Boot ────────────────────────────────────────────────────────
-init();
 </script>
 </body>
 </html>

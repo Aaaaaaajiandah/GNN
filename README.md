@@ -13,21 +13,17 @@ GNN/
 ├── app.py                     ← Flask web server — run this to open the UI
 ├── train.py                   ← Train the GNN model
 ├── data_manager.py            ← Fetch live stock prices + quarterly data via yfinance
-├── companies.csv              ← Company financial data (edit to add/update companies)
-├── companies_template.csv     ← Column reference for companies.csv format
-├── edges.csv                  ← Supply chain relationships (supplier → customer)
-├── edges_template.csv         ← Column reference for edges.csv format
 ├── requirements.txt           ← Python dependencies
 ├── README.md                  ← This file
 │
 ├── data/
 │   ├── dataset.py             ← Data structures, feature engineering, graph builder
 │   ├── csv_loader.py          ← CSV loader (replaces synthetic data generation)
-│   └── examples/
-│       ├── companies.csv      ← 59-company example dataset (real financials)
-│       ├── companies_template.csv
-│       ├── edges.csv          ← 213-edge supply chain example
-│       └── edges_template.csv
+│   └── examples/              ← YOUR WORKING DATA FILES LIVE HERE
+│       ├── companies.csv      ← 59-company dataset (edit this to add/update companies)
+│       ├── companies_template.csv  ← Column reference / format guide
+│       ├── edges.csv          ← 213-edge supply chain relationships
+│       └── edges_template.csv ← Edge format reference
 │
 ├── models/
 │   └── gnn.py                 ← GNN architecture (GraphConvLayer, SupplyChainGNN)
@@ -63,7 +59,9 @@ pip install flask yfinance werkzeug --break-system-packages
 ### 1 — Train
 
 ```bash
-python train.py --csv --companies companies.csv --edges edges.csv
+python train.py --csv \
+  --companies data/examples/companies.csv \
+  --edges     data/examples/edges.csv
 ```
 
 Optional flags:
@@ -75,7 +73,7 @@ Optional flags:
 | `--hidden` | 128 | Model width (try 256 for larger graphs) |
 | `--layers` | 3 | GNN depth — more layers = deeper propagation |
 | `--csv` | off | Use CSV files instead of synthetic data |
-| `--companies` | data/examples/companies.csv | Path to companies CSV |
+| `--companies` | data/examples/companies.csv | Path to your companies CSV |
 | `--edges` | data/examples/edges.csv | Path to edges CSV |
 
 ### 2 — Fetch Live Data (optional but recommended)
@@ -286,7 +284,9 @@ XAI,MSFT,0.20
 
 Retrain:
 ```bash
-python train.py --csv --companies companies.csv --edges edges.csv
+python train.py --csv \
+  --companies data/examples/companies.csv \
+  --edges     data/examples/edges.csv
 ```
 
 Or use the **Add / Update Company** panel in the Live Data tab to do it through the UI.
@@ -303,7 +303,9 @@ Find the row in `edges.csv`, update the third column (0.0 = weak, 1.0 = critical
 
 Always retrain before restarting the UI:
 ```bash
-python train.py --csv --companies companies.csv --edges edges.csv
+python train.py --csv \
+  --companies data/examples/companies.csv \
+  --edges     data/examples/edges.csv
 python app.py
 ```
 

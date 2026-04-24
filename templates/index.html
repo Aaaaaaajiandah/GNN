@@ -58,6 +58,10 @@ async function init() {
   graphData = graph;
   sectorData = sectors;
 
+  // Live tab search/filter listeners (DOM is ready here)
+  $('stock-search').addEventListener('input', renderStockTable);
+  $('live-sector-filter').addEventListener('change', renderStockTable);
+
   // Build sector color map
   const sectorNames = [...new Set(graph.nodes.map(n => n.sector))];
   sectorNames.forEach((s, i) => SECTOR_COLORS[s] = palette[i % palette.length]);
@@ -826,8 +830,7 @@ function sortTable(key) {
   renderStockTable();
 }
 
-$('stock-search').addEventListener('input', renderStockTable);
-$('live-sector-filter').addEventListener('change', renderStockTable);
+// stock-search and live-sector-filter listeners added in init()
 
 async function selectStock(ticker) {
   selectedTicker = ticker;
@@ -1624,8 +1627,7 @@ function sortTable(key) {
   renderStockTable();
 }
 
-$('stock-search').addEventListener('input', renderStockTable);
-$('live-sector-filter').addEventListener('change', renderStockTable);
+// stock-search and live-sector-filter listeners added in init()
 
 async function selectStock(ticker) {
   selectedTicker = ticker;

@@ -293,6 +293,233 @@ def api_supply_chain_stats(cid):
         "chain_avg_impact": round(sum(co["impact"] for co in all_chain)/max(len(all_chain),1),3) if all_chain else 0,
     })
 
+
+import csv, io, tempfile, shutil
+from werkzeug.utils import secure_filename
+
+LIVE_CACHE_FILE = "data/live_cache.json"
+COMPANIES_CSV   = "companies.csv"
+EDGES_CSV       = "edges.csv"
+
+
+def load_live_cache():
+    if os.path.exists(LIVE_CACHE_FILE):
+        with open(LIVE_CACHE_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+@app.route("/api/stocks")
+def api_stocks():
+    """Return live stock data merged with company graph data."""
+    cache = load_live_cache()
+    impacts = run_inference()
+    result = []
+    for c in companies:
+        live = cache.get(c.ticker, {})
+        forecast, months, specific = get_forecast(c)
+        entry = {
+            "id":           c.id,
+            "name":         c.name,
+            "ticker":       c.ticker,
+            "sector":       c.sector,
+            "revenue_bn":   c.revenue_bn,
+            "market_cap_bn": c.market_cap_bn,
+            "margin":       round(c.margin * 100, 2),
+            "yoy_growth":   round(c.yoy_growth * 100, 2),
+            "impact":       round(impacts[c.id] * 100, 3),
+            "forecast":     round(forecast * 100, 1),
+            # Live fields (None if not cached)
+            "price":        live.get("price"),
+            "change_pct":   live.get("change_pct"),
+            "market_cap_live": live.get("market_cap_bn"),
+            "week52_high":  live.get("52w_high"),
+            "week52_low":   live.get("52w_low"),
+            "volume":       live.get("volume"),
+            "currency":     live.get("currency", "USD"),
+            "hist_prices":  live.get("hist_prices", []),
+            "quarterly":    live.get("quarterly", {}),
+            "fetched_at":   live.get("fetched_at"),
+            "live_error":   live.get("error"),
+        }
+        # Use live market cap if available
+        if entry["market_cap_live"]:
+            entry["market_cap_bn"] = entry["market_cap_live"]
+        result.append(entry)
+    return jsonify({
+        "stocks": result,
+        "cache_count": len(cache),
+        "last_update": max((v.get("fetched_at","") for v in cache.values()), default=None),
+    })
+
+
+@app.route("/api/stock_detail/<ticker>")
+def api_stock_detail(ticker):
+    """Return detailed stock info for one ticker."""
+    cache = load_live_cache()
+    live = cache.get(ticker.upper(), {})
+    c_match = next((c for c in companies if c.ticker == ticker.upper()), None)
+    if not c_match:
+        return jsonify({"error": "ticker not found in companies"}), 404
+    impacts = run_inference()
+    forecast, months, specific = get_forecast(c_match)
+    return jsonify({
+        "id": c_match.id,
+        "name": c_match.name,
+        "ticker": c_match.ticker,
+        "sector": c_match.sector,
+        "impact": round(impacts[c_match.id] * 100, 3),
+        "forecast": round(forecast * 100, 1),
+        **live,
+    })
+
+
+@app.route("/api/update_company_data", methods=["POST"])
+def api_update_company_data():
+    """
+    Manually update a company's financial data from posted JSON.
+    Body: { ticker, revenue_bn, margin, yoy_growth, market_cap_bn, ... }
+    This edits companies.csv directly so next retrain picks it up.
+    """
+    body = request.get_json(silent=True) or {}
+    ticker = body.get("ticker", "").strip().upper()
+    if not ticker:
+        return jsonify({"error": "ticker required"}), 400
+
+    updatable = ["revenue_bn","margin","yoy_growth","market_cap_bn","r_and_d_pct",
+                 "capex_pct","debt_ratio","sector_growth_forecast","forecast_horizon_months"]
+    if not os.path.exists(COMPANIES_CSV):
+        return jsonify({"error": f"{COMPANIES_CSV} not found"}), 404
+
+    rows, updated, fieldnames = [], False, []
+    with open(COMPANIES_CSV, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames or []
+        for row in reader:
+            first = next(iter(row.values()), "")
+            if first.strip().startswith("#"):
+                rows.append(row); continue
+            if row.get("ticker","").strip().upper() == ticker:
+                for field in updatable:
+                    if field in body and body[field] is not None and field in row:
+                        row[field] = str(body[field])
+                updated = True
+            rows.append(row)
+
+    if not updated:
+        return jsonify({"error": f"ticker {ticker} not found in CSV"}), 404
+
+    with open(COMPANIES_CSV, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    # Invalidate tensor cache
+    global _cached_tensors
+    _cached_tensors = None
+    return jsonify({"ok": True, "ticker": ticker, "message": "Updated. Retrain to apply changes."})
+
+
+@app.route("/api/upload_company", methods=["POST"])
+def api_upload_company():
+    """
+    Upload a CSV to add a new company (or update existing).
+    Accepts multipart form with:
+      file = CSV file (see companies_template.csv for format)
+      edges = optional JSON string: [{"supplier":"TICK","customer":"TICK","strength":0.5}]
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    f = request.files["file"]
+    edges_json = request.form.get("edges", "[]")
+    try:
+        edges_data = json.loads(edges_json)
+    except Exception:
+        edges_data = []
+
+    # Parse uploaded CSV
+    content = f.read().decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(content))
+    rows = [row for row in reader]
+    if not rows:
+        return jsonify({"error": "Empty CSV"}), 400
+
+    added, updated_tickers = [], []
+    existing = {}
+    if os.path.exists(COMPANIES_CSV):
+        with open(COMPANIES_CSV, newline="", encoding="utf-8-sig") as cf:
+            r = csv.DictReader(cf)
+            fieldnames = r.fieldnames or []
+            all_rows = list(r)
+        existing_tickers = {row.get("ticker","").strip().upper() for row in all_rows
+                            if not next(iter(row.values()),"").strip().startswith("#")}
+    else:
+        fieldnames = ["name","ticker","sector","revenue_bn","margin","debt_ratio",
+                      "yoy_growth","market_cap_bn","r_and_d_pct","capex_pct",
+                      "sector_growth_forecast","forecast_horizon_months"]
+        all_rows = []
+        existing_tickers = set()
+
+    for row in rows:
+        r = {k.strip().lower(): v.strip() for k, v in row.items()}
+        first = next(iter(r.values()), "")
+        if first.startswith("#"): continue
+        ticker = r.get("ticker", "").upper()
+        if not ticker: continue
+        new_row = {fn: r.get(fn.lower(), "") for fn in fieldnames}
+        new_row["ticker"] = ticker
+        if ticker in existing_tickers:
+            # Update existing row
+            for i, er in enumerate(all_rows):
+                if er.get("ticker","").strip().upper() == ticker:
+                    for k, v in new_row.items():
+                        if v: er[k] = v
+                    all_rows[i] = er; break
+            updated_tickers.append(ticker)
+        else:
+            all_rows.append(new_row)
+            added.append(ticker)
+
+    # Write back companies.csv
+    with open(COMPANIES_CSV, "w", newline="", encoding="utf-8") as cf:
+        writer = csv.DictWriter(cf, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(all_rows)
+
+    # Append edges
+    if edges_data and os.path.exists(EDGES_CSV):
+        with open(EDGES_CSV, "a", newline="", encoding="utf-8") as ef:
+            from datetime import datetime as dt
+            ef.write(f"\n# ── Uploaded edges {dt.now().strftime('%Y-%m-%d')} ──\n")
+            for e in edges_data:
+                sup = e.get("supplier","").upper()
+                cus = e.get("customer","").upper()
+                strength = e.get("strength", 0.5)
+                if sup and cus:
+                    ef.write(f"{sup},{cus},{strength}\n")
+
+    global _cached_tensors
+    _cached_tensors = None
+    return jsonify({
+        "ok": True,
+        "added": added,
+        "updated": updated_tickers,
+        "edges_added": len(edges_data),
+        "message": f"Added {len(added)}, updated {len(updated_tickers)} companies. Retrain to apply.",
+    })
+
+
+@app.route("/api/cache_status")
+def api_cache_status():
+    cache = load_live_cache()
+    return jsonify({
+        "count": len(cache),
+        "tickers": list(cache.keys()),
+        "last_update": max((v.get("fetched_at","") for v in cache.values()), default=None),
+        "with_errors": [t for t, v in cache.items() if v.get("error")],
+    })
+
 if __name__ == "__main__":
     load_or_generate_graph()
     load_model()

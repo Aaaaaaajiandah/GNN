@@ -4,7 +4,327 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Supply Chain Intelligence</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js">
+
+// ─── Live Data Tab ───────────────────────────────────────────────
+let stockData = [];
+let stockSortKey = 'market_cap_bn';
+let stockSortAsc = false;
+let selectedTicker = null;
+let uploadedRows = [];
+
+async function loadStockTab() {
+  const res = await fetch('/api/stocks');
+  const data = await res.json();
+  stockData = data.stocks;
+
+  // Status badge
+  const badge = $('live-status-badge');
+  const lastUp = $('live-last-update');
+  if (data.cache_count === 0) {
+    badge.textContent = 'No cache'; badge.className = 'live-badge none';
+    lastUp.textContent = 'Run data_manager.py update to fetch live prices';
+  } else {
+    const ts = data.last_update ? new Date(data.last_update) : null;
+    const ageH = ts ? ((Date.now() - ts) / 3600000).toFixed(1) : null;
+    const fresh = ageH && ageH < 2;
+    badge.textContent = fresh ? `Live (${data.cache_count} tickers)` : `Cached (${data.cache_count})`;
+    badge.className = 'live-badge ' + (fresh ? 'live' : 'stale');
+    lastUp.textContent = ts ? `Updated ${ts.toLocaleString()}` : '';
+  }
+
+  // Populate sector filter
+  const sf = $('live-sector-filter');
+  if (sf.options.length === 1) {
+    [...new Set(stockData.map(s => s.sector))].sort().forEach(sec => {
+      const o = document.createElement('option');
+      o.value = sec; o.textContent = sec; sf.appendChild(o);
+    });
+  }
+
+  // Populate edit ticker dropdown
+  const et = $('edit-ticker');
+  if (et.options.length === 0) {
+    stockData.sort((a,b) => a.ticker.localeCompare(b.ticker)).forEach(s => {
+      const o = document.createElement('option');
+      o.value = s.ticker; o.textContent = `${s.ticker} — ${s.name}`;
+      et.appendChild(o);
+    });
+  }
+
+  renderStockTable();
+}
+
+function renderStockTable() {
+  const q = $('stock-search').value.toLowerCase();
+  const sf = $('live-sector-filter').value;
+
+  let rows = stockData.filter(s =>
+    (!q || s.ticker.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)) &&
+    (!sf || s.sector === sf)
+  );
+
+  rows.sort((a, b) => {
+    const av = a[stockSortKey] ?? -Infinity;
+    const bv = b[stockSortKey] ?? -Infinity;
+    return stockSortAsc ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+  });
+
+  const tbody = $('stock-tbody');
+  tbody.innerHTML = '';
+  rows.forEach(s => {
+    const hasLive = s.price !== null && s.price !== undefined;
+    const chgCol = !hasLive ? 'price-na' : s.change_pct >= 0 ? 'price-up' : 'price-dn';
+    const chgTxt = !hasLive ? '—' : (s.change_pct >= 0 ? '+' : '') + s.change_pct.toFixed(2) + '%';
+    const priceTxt = hasLive ? `${s.currency === 'USD' ? '$' : ''}${s.price.toLocaleString()}` : '—';
+    const sCol = SECTOR_COLORS[s.sector] || '#888';
+    const spark = s.hist_prices.length > 1 ? drawSparkline(s.hist_prices) : '<span style="color:var(--muted);font-size:10px">no data</span>';
+    const impCol = s.impact >= 0 ? 'var(--green)' : 'var(--red)';
+
+    const tr = document.createElement('tr');
+    tr.dataset.ticker = s.ticker;
+    if (s.ticker === selectedTicker) tr.classList.add('selected');
+    tr.innerHTML = `
+      <td><span style="font-family:var(--font-mono);font-weight:700;font-size:11px;color:${sCol}">${s.ticker}</span></td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${s.name}</td>
+      <td style="font-size:10px;color:var(--muted)"><span class="sector-dot" style="background:${sCol}"></span>${s.sector}</td>
+      <td style="font-family:var(--font-mono);font-weight:700;font-size:12px">${priceTxt}</td>
+      <td class="${chgCol}" style="font-family:var(--font-mono);font-size:11px;font-weight:700">${chgTxt}</td>
+      <td>${spark}</td>
+      <td style="font-family:var(--font-mono);font-size:11px">${fmtM(s.market_cap_bn)}</td>
+      <td style="font-size:11px;color:${s.margin>=0?'var(--green)':'var(--red)'}">${s.margin.toFixed(1)}%</td>
+      <td style="font-size:11px;color:${s.yoy_growth>=0?'var(--green)':'var(--red)'}">${s.yoy_growth>=0?'+':''}${s.yoy_growth.toFixed(1)}%</td>
+      <td style="font-size:11px;color:var(--yellow)">${s.forecast}%</td>
+      <td style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:${impCol}">${fmtImpact(s.impact)}</td>`;
+    tr.onclick = () => selectStock(s.ticker);
+    tbody.appendChild(tr);
+  });
+}
+
+function drawSparkline(prices) {
+  const w = 70, h = 24;
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const range = max - min || 1;
+  const pts = prices.map((p, i) => {
+    const x = (i / (prices.length - 1)) * w;
+    const y = h - ((p - min) / range) * h;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const col = prices[prices.length-1] >= prices[0] ? '#3ddc84' : '#ff6b6b';
+  return `<svg class="sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function sortTable(key) {
+  if (stockSortKey === key) stockSortAsc = !stockSortAsc;
+  else { stockSortKey = key; stockSortAsc = false; }
+  renderStockTable();
+}
+
+$('stock-search').addEventListener('input', renderStockTable);
+$('live-sector-filter').addEventListener('change', renderStockTable);
+
+async function selectStock(ticker) {
+  selectedTicker = ticker;
+  document.querySelectorAll('#stock-tbody tr').forEach(tr =>
+    tr.classList.toggle('selected', tr.dataset.ticker === ticker));
+
+  const s = stockData.find(x => x.ticker === ticker);
+  if (!s) return;
+  const panel = $('live-detail-panel');
+  const sCol = SECTOR_COLORS[s.sector] || 'var(--accent)';
+  const hasLive = s.price !== null;
+
+  let week52html = '';
+  if (hasLive && s.week52_low && s.week52_high) {
+    const range = s.week52_high - s.week52_low;
+    const pos = range > 0 ? ((s.price - s.week52_low) / range * 100).toFixed(0) : 50;
+    week52html = `
+      <div style="font-size:10px;color:var(--muted);margin:8px 0 3px">52-Week Range</div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;font-family:var(--font-mono)">
+        <span>$${s.week52_low}</span><span style="color:var(--accent)">$${s.price}</span><span>$${s.week52_high}</span>
+      </div>
+      <div class="week52-bar"><div class="week52-price" style="left:calc(${pos}% - 1.5px)"></div></div>`;
+  }
+
+  let quarterlyHtml = '';
+  if (s.quarterly && s.quarterly.period) {
+    const q = s.quarterly;
+    quarterlyHtml = `
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 5px">Latest Quarter (${q.period})</div>
+      ${q.revenue != null ? `<div class="quarterly-row"><span>Revenue</span><span style="font-family:var(--font-mono);font-weight:700">$${q.revenue.toFixed(2)}B</span></div>` : ''}
+      ${q.gross_profit != null ? `<div class="quarterly-row"><span>Gross Profit</span><span style="font-family:var(--font-mono)">$${q.gross_profit.toFixed(2)}B</span></div>` : ''}
+      ${q.operating_income != null ? `<div class="quarterly-row"><span>Operating Income</span><span style="font-family:var(--font-mono);color:${q.operating_income>=0?'var(--green)':'var(--red)'}">$${q.operating_income.toFixed(2)}B</span></div>` : ''}
+      ${q.net_income != null ? `<div class="quarterly-row"><span>Net Income</span><span style="font-family:var(--font-mono);color:${q.net_income>=0?'var(--green)':'var(--red)'}">$${q.net_income.toFixed(2)}B</span></div>` : ''}`;
+  }
+
+  panel.innerHTML = `
+    <h4 style="color:${sCol}">${s.name} <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${s.ticker}</span></h4>
+    ${hasLive ? `
+      <div style="font-size:24px;font-weight:700;font-family:var(--font-mono);margin:6px 0">
+        ${s.currency !== 'USD' ? s.currency + ' ' : '$'}${s.price.toLocaleString()}
+        <span style="font-size:14px;color:${s.change_pct>=0?'var(--green)':'var(--red)'}">${s.change_pct>=0?'+':''}${s.change_pct}%</span>
+      </div>` : '<div style="color:var(--muted);font-size:11px;margin:6px 0">No live price — run data_manager.py</div>'}
+    ${week52html}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:10px">
+      ${IB('Market Cap', fmtM(s.market_cap_bn))}
+      ${IB('Volume', s.volume ? s.volume.toLocaleString() : '—')}
+      ${IB('Margin', s.margin.toFixed(1)+'%', s.margin>=0?'var(--green)':'var(--red)')}
+      ${IB('YoY Growth', (s.yoy_growth>=0?'+':'')+s.yoy_growth.toFixed(1)+'%', s.yoy_growth>=0?'var(--green)':'var(--red)')}
+      ${IB('GNN Impact', fmtImpact(s.impact), s.impact>=0?'var(--green)':'var(--red)')}
+      ${IB('Forecast', s.forecast+'%', 'var(--yellow)')}
+    </div>
+    ${quarterlyHtml}
+    ${hasLive && s.hist_prices.length > 1 ? `
+      <div style="font-size:10px;color:var(--muted);margin:10px 0 5px">30-Day Trend</div>
+      ${drawSparkline(s.hist_prices).replace('width="70"','width="100%"').replace('viewBox="0 0 70','viewBox="0 0 280').replace(/70/g,'280')}` : ''}
+    <div style="margin-top:10px;display:flex;gap:6px">
+      <button onclick="switchTab('graph',document.querySelector('.tab-btn'));setTimeout(()=>selectCompany(${s.id}),80)"
+        style="flex:1;padding:5px;font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;cursor:pointer;color:var(--text)">
+        View in Graph
+      </button>
+      <button onclick="switchTab('invest',document.querySelectorAll('.tab-btn')[3]);$('inv-filter-mode').value='company';onFilterModeChange();$('inv-company').value=${s.id};runCalculator()"
+        style="flex:1;padding:5px;font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;cursor:pointer;color:var(--text)">
+        Analyse Investment
+      </button>
+    </div>`;
+}
+
+async function refreshStockData() {
+  const btn = document.querySelector('.update-btn');
+  btn.disabled = true; btn.textContent = '⟳ Loading...';
+  await loadStockTab();
+  btn.disabled = false; btn.textContent = '⟳ Refresh Cache';
+}
+
+// ─── File Upload ──────────────────────────────────────────────────
+function handleFileDrop(event) {
+  event.preventDefault();
+  $('upload-zone').classList.remove('drag');
+  const file = event.dataTransfer.files[0];
+  if (file) processUploadFile(file);
+}
+
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (file) processUploadFile(file);
+}
+
+function processUploadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const lines = text.trim().split('
+').filter(l => !l.startsWith('#'));
+    if (lines.length < 2) { alert('CSV must have a header and at least one data row'); return; }
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    uploadedRows = lines.slice(1).map(line => {
+      const vals = line.split(',');
+      return Object.fromEntries(headers.map((h, i) => [h, (vals[i] || '').trim()]));
+    }).filter(r => r.ticker || r.name);
+
+    const preview = $('upload-preview');
+    const previewContent = $('upload-preview-content');
+    previewContent.innerHTML = uploadedRows.map(r => `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:7px 9px;margin-bottom:5px;font-size:11px">
+        <strong style="color:var(--accent)">${r.ticker || '?'}</strong> — ${r.name || '?'}
+        <span style="color:var(--muted);margin-left:6px">${r.sector || ''}</span>
+        ${r.revenue_bn ? `<br>Rev: $${r.revenue_bn}B` : ''}
+        ${r.margin ? ` · Margin: ${r.margin}` : ''}
+        ${r.market_cap_bn ? ` · Cap: $${r.market_cap_bn}B` : ''}
+      </div>`).join('');
+    preview.style.display = '';
+    $('edges-input-list').innerHTML = '';
+    addEdgeInput();
+  };
+  reader.readAsText(file);
+}
+
+function addEdgeInput() {
+  const list = $('edges-input-list');
+  const row = document.createElement('div');
+  row.className = 'edge-input-row';
+  row.innerHTML = `
+    <input class="form-input" placeholder="Supplier ticker" style="font-size:11px;padding:4px 7px">
+    <span style="line-height:28px;color:var(--muted)">→</span>
+    <input class="form-input" placeholder="Customer ticker" style="font-size:11px;padding:4px 7px">
+    <input class="form-input" placeholder="Strength 0-1" style="font-size:11px;padding:4px 7px;width:70px">
+    <button onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 3px">×</button>`;
+  list.appendChild(row);
+}
+
+async function submitUpload() {
+  if (!uploadedRows.length) { alert('No data to upload'); return; }
+
+  // Build CSV content
+  const headers = ['name','ticker','sector','revenue_bn','margin','debt_ratio','yoy_growth',
+                   'market_cap_bn','r_and_d_pct','capex_pct','sector_growth_forecast','forecast_horizon_months'];
+  let csvContent = headers.join(',') + '
+';
+  uploadedRows.forEach(r => {
+    csvContent += headers.map(h => r[h.toLowerCase()] || '').join(',') + '
+';
+  });
+
+  // Collect edges
+  const edgeRows = $('edges-input-list').querySelectorAll('.edge-input-row');
+  const edges = [];
+  edgeRows.forEach(row => {
+    const inputs = row.querySelectorAll('input');
+    const sup = inputs[0].value.trim().toUpperCase();
+    const cus = inputs[1].value.trim().toUpperCase();
+    const str = parseFloat(inputs[2].value) || 0.5;
+    if (sup && cus) edges.push({ supplier: sup, customer: cus, strength: str });
+  });
+
+  const formData = new FormData();
+  const blob = new Blob([csvContent], { type: 'text/csv' });
+  formData.append('file', blob, 'upload.csv');
+  formData.append('edges', JSON.stringify(edges));
+
+  const res = await fetch('/api/upload_company', { method: 'POST', body: formData });
+  const data = await res.json();
+  const result = $('upload-result');
+  if (data.ok) {
+    result.style.color = 'var(--green)';
+    result.textContent = data.message;
+    $('upload-preview').style.display = 'none';
+    uploadedRows = [];
+    setTimeout(loadStockTab, 500);
+  } else {
+    result.style.color = 'var(--red)';
+    result.textContent = data.error || 'Upload failed';
+  }
+}
+
+async function submitEdit() {
+  const ticker = $('edit-ticker').value;
+  const body = { ticker };
+  const rev = $('edit-revenue').value; if (rev) body.revenue_bn = parseFloat(rev);
+  const mar = $('edit-margin').value; if (mar) body.margin = parseFloat(mar) / 100;
+  const yoy = $('edit-yoy').value; if (yoy) body.yoy_growth = parseFloat(yoy) / 100;
+  const cap = $('edit-mktcap').value; if (cap) body.market_cap_bn = parseFloat(cap);
+  const fc  = $('edit-forecast').value; if (fc) body.sector_growth_forecast = parseFloat(fc) / 100;
+  const mo  = $('edit-months').value; if (mo) body.forecast_horizon_months = parseInt(mo);
+
+  const res = await fetch('/api/update_company_data', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  const result = $('edit-result');
+  result.style.color = data.ok ? 'var(--green)' : 'var(--red)';
+  result.textContent = data.message || data.error;
+}
+
+// Hook into switchTab to load stock data lazily
+const _origSwitchTab = switchTab;
+function switchTab(name, btn) {
+  _origSwitchTab(name, btn);
+  if (name === 'live' && stockData.length === 0) loadStockTab();
+}
+
+</script>
 <style>
 /* ── Theme variables ──────────────────────────────────────────── */
 [data-theme="dark"] {
@@ -167,6 +487,44 @@ body { background:var(--bg); color:var(--text); font-family:'IBM Plex Sans','Seg
 .exp-fill { height:100%; border-radius:3px; }
 .risk-tag { font-size:9px; font-weight:700; padding:2px 5px; border-radius:3px; margin-left:4px; }
 
+/* ── Live Data Tab ──────────────────────────────────────────── */
+#view-live { flex-direction:column; overflow:hidden; }
+#live-layout { display:grid; grid-template-columns:1fr 340px; height:100%; overflow:hidden; }
+#live-table-wrap { padding:14px; overflow-y:auto; }
+#live-sidebar { border-left:1px solid var(--border); padding:16px; overflow-y:auto; background:var(--surface); display:flex; flex-direction:column; gap:12px; }
+#live-header { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+#live-header h2 { font-size:13px; font-weight:700; flex:1; }
+.live-badge { font-size:9px; font-weight:700; padding:2px 6px; border-radius:3px; }
+.live-badge.live { background:rgba(61,220,132,.15); color:var(--green); }
+.live-badge.stale { background:rgba(255,209,102,.15); color:var(--yellow); }
+.live-badge.none { background:rgba(107,107,128,.15); color:var(--muted); }
+.stock-table { width:100%; border-collapse:collapse; font-size:12px; }
+.stock-table th { text-align:left; padding:6px 8px; font-size:9px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); border-bottom:2px solid var(--border); position:sticky; top:0; background:var(--bg); cursor:pointer; user-select:none; }
+.stock-table th:hover { color:var(--text); }
+.stock-table td { padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.stock-table tr:hover td { background:rgba(91,141,238,.05); }
+.stock-table tr.selected td { background:rgba(91,141,238,.1); }
+.sparkline { display:inline-block; vertical-align:middle; }
+.price-up { color:var(--green); }
+.price-dn { color:var(--red); }
+.price-na { color:var(--muted); }
+.sector-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+.update-btn { background:var(--accent); color:#fff; border:none; border-radius:6px; padding:6px 12px; font-size:11px; font-weight:700; cursor:pointer; transition:opacity .15s; }
+.update-btn:hover { opacity:.85; }
+.update-btn:disabled { opacity:.5; cursor:not-allowed; }
+.upload-zone { border:2px dashed var(--border); border-radius:8px; padding:20px; text-align:center; transition:border-color .2s; cursor:pointer; }
+.upload-zone:hover, .upload-zone.drag { border-color:var(--accent); }
+.upload-zone p { font-size:12px; color:var(--muted); margin-top:6px; }
+.upload-zone input[type=file] { display:none; }
+.detail-stock { background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:12px; }
+.detail-stock h4 { font-size:12px; font-weight:700; margin-bottom:8px; }
+.week52-bar { height:6px; background:var(--border); border-radius:3px; margin:6px 0; position:relative; overflow:visible; }
+.week52-price { position:absolute; height:10px; width:3px; background:var(--accent); border-radius:2px; top:-2px; }
+.quarterly-row { display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid var(--border); font-size:11px; }
+.quarterly-row:last-child { border:none; }
+.edge-input-row { display:flex; gap:6px; margin-bottom:6px; }
+.edge-input-row input { flex:1; }
+
 /* ── Loading ────────────────────────────────────────────────────── */
 #loading { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; z-index:999; }
 .spinner { width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
@@ -200,6 +558,7 @@ body { background:var(--bg); color:var(--text); font-family:'IBM Plex Sans','Seg
     <button class="tab-btn" onclick="switchTab('shock',this)">Shock Propagation</button>
     <button class="tab-btn" onclick="switchTab('sectors',this)">Sector Bubbles</button>
     <button class="tab-btn" onclick="switchTab('invest',this)">Investment Calculator</button>
+    <button class="tab-btn" onclick="switchTab('live',this)">📡 Live Data</button>
   </div>
 
   <!-- Graph -->
@@ -341,6 +700,100 @@ body { background:var(--bg); color:var(--text); font-family:'IBM Plex Sans','Seg
         <button class="run-btn" onclick="runCalculator()">📊 Calculate</button>
       </div>
       <div id="invest-results"><h2>Projected Returns</h2><p style="color:var(--muted);font-size:12px">Configure and calculate.</p></div>
+    </div>
+  </div>
+
+  <!-- Live Data -->
+  <div class="view" id="view-live">
+    <div id="live-layout">
+      <div id="live-table-wrap">
+        <div id="live-header">
+          <h2>Live Stock Data</h2>
+          <span id="live-status-badge" class="live-badge none">No cache</span>
+          <span id="live-last-update" style="font-size:10px;color:var(--muted)"></span>
+          <input id="stock-search" type="text" placeholder="Filter..." style="padding:4px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:12px;width:140px;outline:none">
+          <select id="live-sector-filter" style="padding:4px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:12px;outline:none">
+            <option value="">All Sectors</option>
+          </select>
+          <button class="update-btn" onclick="refreshStockData()">⟳ Refresh Cache</button>
+        </div>
+        <table class="stock-table" id="stock-table">
+          <thead>
+            <tr>
+              <th onclick="sortTable('ticker')">Ticker ↕</th>
+              <th onclick="sortTable('name')">Company ↕</th>
+              <th onclick="sortTable('sector')">Sector ↕</th>
+              <th onclick="sortTable('price')">Price ↕</th>
+              <th onclick="sortTable('change_pct')">Chg% ↕</th>
+              <th>Trend</th>
+              <th onclick="sortTable('market_cap_bn')">Mkt Cap ↕</th>
+              <th onclick="sortTable('margin')">Margin ↕</th>
+              <th onclick="sortTable('yoy_growth')">YoY ↕</th>
+              <th onclick="sortTable('forecast')">Forecast ↕</th>
+              <th onclick="sortTable('impact')">GNN Impact ↕</th>
+            </tr>
+          </thead>
+          <tbody id="stock-tbody"></tbody>
+        </table>
+      </div>
+      <div id="live-sidebar">
+        <!-- Stock detail -->
+        <div class="detail-stock" id="live-detail-panel">
+          <p style="color:var(--muted);font-size:11px;text-align:center;padding:20px 0">Click a row to see details</p>
+        </div>
+        <!-- Add / Update Company -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:12px">
+          <h4 style="font-size:12px;font-weight:700;margin-bottom:10px">➕ Add / Update Company</h4>
+          <div class="upload-zone" id="upload-zone" onclick="$('company-upload').click()"
+               ondragover="event.preventDefault();this.classList.add('drag')"
+               ondragleave="this.classList.remove('drag')"
+               ondrop="handleFileDrop(event)">
+            <div style="font-size:24px">📄</div>
+            <div style="font-size:12px;font-weight:600;margin-top:4px">Drop CSV or click to upload</div>
+            <p>Use companies_template.csv format</p>
+            <input type="file" id="company-upload" accept=".csv" onchange="handleFileSelect(event)">
+          </div>
+          <div id="upload-preview" style="display:none;margin-top:10px">
+            <div style="font-size:11px;font-weight:700;margin-bottom:6px;color:var(--text)">Preview</div>
+            <div id="upload-preview-content"></div>
+            <div style="font-size:11px;font-weight:700;margin:8px 0 5px;color:var(--text)">Supply Chain Edges (optional)</div>
+            <div id="edges-input-list"></div>
+            <button onclick="addEdgeInput()" style="font-size:10px;color:var(--accent);background:none;border:none;cursor:pointer;padding:2px 0">+ Add edge</button>
+            <button class="run-btn" style="margin-top:8px" onclick="submitUpload()">Upload Company</button>
+          </div>
+          <div id="upload-result" style="margin-top:8px;font-size:11px"></div>
+        </div>
+        <!-- Manual data update -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:12px">
+          <h4 style="font-size:12px;font-weight:700;margin-bottom:8px">✏️ Update Company Data</h4>
+          <div class="form-group">
+            <label class="form-label">Ticker</label>
+            <select class="form-select" id="edit-ticker" style="font-size:12px;padding:5px 8px"></select>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+            <div><label class="form-label">Revenue ($B)</label><input class="form-input" id="edit-revenue" type="number" step="0.1" placeholder="e.g. 52.9" style="font-size:11px;padding:5px 7px"></div>
+            <div><label class="form-label">Net Margin %</label><input class="form-input" id="edit-margin" type="number" step="0.1" placeholder="e.g. -0.5" style="font-size:11px;padding:5px 7px"></div>
+            <div><label class="form-label">YoY Growth %</label><input class="form-input" id="edit-yoy" type="number" step="0.1" placeholder="e.g. 13.7" style="font-size:11px;padding:5px 7px"></div>
+            <div><label class="form-label">Market Cap ($B)</label><input class="form-input" id="edit-mktcap" type="number" step="1" placeholder="e.g. 312" style="font-size:11px;padding:5px 7px"></div>
+            <div><label class="form-label">Sector Forecast %</label><input class="form-input" id="edit-forecast" type="number" step="1" placeholder="e.g. 45" style="font-size:11px;padding:5px 7px"></div>
+            <div><label class="form-label">Forecast Months</label><input class="form-input" id="edit-months" type="number" step="1" placeholder="e.g. 12" style="font-size:11px;padding:5px 7px"></div>
+          </div>
+          <button class="run-btn" onclick="submitEdit()" style="font-size:12px;padding:8px">💾 Save Changes</button>
+          <div id="edit-result" style="margin-top:6px;font-size:11px"></div>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">Note: Retrain after saving to apply changes to GNN predictions.</div>
+        </div>
+        <!-- Instructions -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:12px">
+          <h4 style="font-size:11px;font-weight:700;margin-bottom:7px;color:var(--muted);text-transform:uppercase">📡 Fetch Live Prices</h4>
+          <div style="font-size:10px;color:var(--muted);line-height:1.7;font-family:var(--font-mono)">
+            On your Gentoo machine:<br>
+            <span style="color:var(--accent)">pip install yfinance</span><br>
+            <span style="color:var(--green)">python data_manager.py update</span><br>
+            <span style="color:var(--yellow)">python data_manager.py status</span><br><br>
+            <span style="color:var(--muted)">Fetches all 59 tickers automatically. Restart app.py after updating.</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>

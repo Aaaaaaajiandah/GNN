@@ -116,7 +116,7 @@ Interactive force-directed graph of every company.
 - **Drag** nodes to rearrange, **scroll** to zoom, **click** background to deselect
 - **Click any node** → detail panel slides up showing:
   - Revenue, margin, YoY growth, market cap, R&D%, CapEx%, debt ratio, GNN impact
-  - Growth forecast (📌 company-specific or 📊 sector default)
+  - Growth forecast (company-specific or sector default)
   - Upstream suppliers with relationship strength bars — all clickable
   - Downstream customers with relationship strength bars — all clickable
 - **Sidebar** = searchable company list sorted with impact pills
@@ -130,10 +130,10 @@ Run what-if scenarios and see how growth signals ripple through the supply chain
 2. Set a growth signal (−80% to +150%)
 3. Hit **▶ Run Propagation**
 4. Every company ranked by predicted Δ revenue impact with color-coded badges:
-   - ⚡ **Direct** — companies in the shocked sector
-   - ↑ **Supplier** — upstream suppliers of that sector
-   - ↓ **Customer** — downstream customers
-   - ~ **Indirect** — second-order effects
+   -  **Direct** — companies in the shocked sector
+   -  **Supplier** — upstream suppliers of that sector
+   - **Customer** — downstream customers
+   - **Indirect** — second-order effects
 5. Click any result row to jump to that company in the graph
 
 ### Sector Bubbles
@@ -165,7 +165,7 @@ Presets: AI Infra · EV Transition · Memory Boom · Top Impact
 
 Clicking any company card jumps to the graph view for that company.
 
-### 📡 Live Data
+###  Live Data
 Real-time stock prices and quarterly financials (requires `data_manager.py` to have been run).
 
 **Stock table** — all 59 companies with:
